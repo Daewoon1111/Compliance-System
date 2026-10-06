@@ -31,3 +31,6 @@ backend/app/data/.admin_token
 # ===== OS / editor =====
 .DS_Store
 .vscode/
+
+package-lock.json
+package.json
