@@ -1,0 +1,20 @@
+{
+  "job_id": "dai_loan",
+  "display_name": "Đài Loan",
+  "notes": [
+    "TẦNG QUỐC GIA — CHỈ ghi những gì KHÁC với tầng khu vực. Khóa không khai ở đây được kế thừa nguyên từ regions/."
+  ],
+  "fields_catalog": {
+    "tien_lam_them_gio": {
+      "check_type": "regulated"
+    },
+    "cac_khoan_khau_tru": {
+      "check_type": "regulated",
+      "check_aspect": "Khấu trừ ăn/ở theo pháp luật Đài Loan. TT 02/2024 Phụ lục III: khấu trừ tiền ăn, ở ≤ 2.500 Đài tệ/tháng; nếu 2.500–5.000 Đài tệ thì bên tiếp nhận phải hỗ trợ bù phần vượt. FAIL nếu khấu trừ vượt quy định mà không hỗ trợ bù."
+    },
+    "chi_phi_khac_nld_nop": {
+      "check_aspect": "Chi phí khác NLĐ nộp (Đài Loan). TT 02/2024 Phụ lục III: phí phục vụ công ty môi giới Đài Loan thu từ NLĐ ≤ 1.500 Đài tệ/tháng. Luật 69/2020 Điều 7 cấm thu môi giới của NLĐ tại VN. FAIL nếu vượt hoặc là môi giới trá hình."
+    }
+  },
+  "version": "2026-07-21"
+}

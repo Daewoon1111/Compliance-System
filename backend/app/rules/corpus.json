@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "note": "ĐĂNG BẠ KHO LUẬT. Mỗi văn bản phải khai: nguồn chính thức, phiên bản (ngày ban hành), khoảng hiệu lực, hàm băm SHA-256 của nội dung ĐÃ PHÊ DUYỆT, và người phê duyệt. approved_by trống = CHƯA phê duyệt; sửa file mà không duyệt lại -> hàm băm lệch và trang Quản trị kho luật báo 'hash_mismatch'. Hàm băm tính trên nội dung UTF-8 đã chuẩn hóa xuống dòng LF.",
+  "entries": [
+    {
+      "file": "Luat_so_69-2020.md",
+      "title": "Luật số 69/2020/QH14",
+      "doc_no": "69/2020/QH14",
+      "doc_type": "labor_law",
+      "official_source": "https://vanban.chinhphu.vn/?pageid=27160&docid=201810",
+      "corpus_version": "2020-11-13",
+      "effective_from": "2022-01-01",
+      "effective_to": null,
+      "sha256": "dee2960c1073ec788fd6cd1edc6f69f4bc0b4459de16f69ba89db500126f0c8c",
+      "approved_by": "",
+      "approved_at": ""
+    },
+    {
+      "file": "Nghi_dinh-112-2021-NĐ-CP.md",
+      "title": "Nghị định số 112/2021/NĐ-CP",
+      "doc_no": "112/2021/NĐ-CP",
+      "doc_type": "decree",
+      "official_source": "https://vanban.chinhphu.vn/?pageid=27160&docid=204812",
+      "corpus_version": "2021-12-10",
+      "effective_from": "2022-01-01",
+      "effective_to": null,
+      "sha256": "8981117454d4418aa58bcc856d2aeb9fc114a5d649c055b043415959581c5e69",
+      "approved_by": "",
+      "approved_at": ""
+    },
+    {
+      "file": "Thong_tu- 21-2021-TT-BLĐTBXH.md",
+      "title": "Thông tư số 21/2021/TT-BLĐTBXH",
+      "doc_no": "21/2021/TT-BLĐTBXH",
+      "doc_type": "circular",
+      "official_source": "https://vanban.chinhphu.vn/?pageid=27160&docid=205176",
+      "corpus_version": "2021-12-15",
+      "effective_from": "2022-02-01",
+      "effective_to": null,
+      "sha256": "99d51eed541f6560b36ad1f6a00e601f557195371a6571925db95bceb06a2e6e",
+      "approved_by": "",
+      "approved_at": ""
+    },
+    {
+      "file": "Thong_tu-02-2024-TT-BLĐTBXH.md",
+      "title": "Thông tư số 02/2024/TT-BLĐTBXH",
+      "doc_no": "02/2024/TT-BLĐTBXH",
+      "doc_type": "circular",
+      "official_source": "https://vanban.chinhphu.vn/?pageid=27160&docid=209705",
+      "corpus_version": "2024-03-29",
+      "effective_from": "2024-05-15",
+      "effective_to": null,
+      "sha256": "1f7913e8c3788fd50d71db50e1393d494ac31e9fe89acffddbe5ad6b922ac19c",
+      "approved_by": "",
+      "approved_at": ""
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+# Cấu hình RUFF. Đặt cạnh bộ test cho gọn gốc `backend/`, nên PHẢI truyền tường minh:
+#     python -m ruff check --config tests/pyproject.toml app tests
+# Không có `--config`, ruff dò ngược từ thư mục của từng file: `app/**` sẽ không bao
+# giờ với tới file này và cả bộ rule dưới đây im lặng không được áp dụng.
+#
+# `cache-dir` của ruff tính theo THƯ MỤC ĐANG ĐỨNG (khác pytest — pytest tính theo
+# rootdir). `npm run test` luôn `cd backend` trước, nên `.cache/ruff` rơi đúng vào
+# `backend/.cache/`, chung chỗ với cache của pytest.
+
+[tool.ruff]
+cache-dir = ".cache/ruff"
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# F   lỗi thật (biến chưa gán, import thừa)   I   thứ tự import
+# B904 mất chuỗi ngoại lệ (raise ... from)     B905 zip cắt lặng
+# SIM105 try/except/pass                       RUF006 task nền bị bộ dọn rác thu hồi
+# C4  comprehension thừa                       UP   cú pháp cũ
+select = ["F", "I", "B904", "B905", "SIM105", "RUF006", "C4", "UP"]
+
+# KHÔNG bật — đây là quyết định kiến trúc, không phải sơ suất:
+#   PLC0415 import trong hàm: nạp trễ CÓ CHỦ ĐÍCH cho gói nặng (torch, transformers,
+#           chromadb) — lệnh nhẹ và bộ test không phải trả giá nạp chúng.
+#   PLW0603 `global`: đều là singleton có khóa (_BACKEND, _CLIENT, _RERANKER).
+#   RUF022  `__all__` chưa sắp xếp: các `__all__` nhóm theo comment, sắp alphabet phá nhóm.
+#   RUF100  noqa thừa: các `# noqa` trong dự án mang vai trò chú thích ý định.

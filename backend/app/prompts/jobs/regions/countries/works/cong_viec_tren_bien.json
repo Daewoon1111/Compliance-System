@@ -1,0 +1,137 @@
+{
+  "display_name": "Công việc trên biển (tàu tuyến quốc tế)",
+  "jurisdiction": "VN",
+  "doc_types": [
+    "labor_law",
+    "decree",
+    "circular",
+    "mlc_2006"
+  ],
+  "version": "2026-06-28",
+  "notes": [
+    "TẦNG CÔNG VIỆC — CHỈ ghi những gì riêng của loại hình lao động này, chồng lên tầng khu vực + quốc gia.",
+    "Rà 10/08/2026: bỏ 3 trường và 42 khóa con chép nguyên tầng dưới. Khai lại đúng giá trị của tầng dưới không đổi hành vi nhưng che mất đâu là khác biệt THẬT của nghề đi biển."
+  ],
+  "fields_catalog": {
+    "cac_che_do_bao_hiem": {
+      "fill_hint": "Ghi: NSDLĐ cung cấp miễn phí bảo hiểm trách nhiệm dân sự chủ tàu biển hoạt động tuyến quốc tế; hoặc ghi theo HĐCU",
+      "check_aspect": "Điều 19 khoản 2 điểm l Luật 69/2020/QH14 áp cho thuyền viên: hợp đồng phải ghi chế độ bảo hiểm người lao động được tham gia. HỢP LỆ khi nêu rõ chủ tàu cung cấp miễn phí bảo hiểm trách nhiệm dân sự chủ tàu và các chế độ bảo hiểm bắt buộc khác theo hợp đồng cung ứng. CẦN BỔ SUNG khi không nêu chế độ nào. KHÔNG HỢP LỆ khi chi phí bảo hiểm bắt buộc bị đẩy sang thuyền viên."
+    },
+    "cac_phu_cap_khac_tien_thuong": {
+      "fill_hint": "Các khoản chủ sử dụng trả thêm, thưởng thêm ngoài tiền lương (nếu có trong HĐCU/TYC)"
+    },
+    "chi_phi_di_lai_tu_vn_den_noi_lam_viec_doi_tac_tra": {
+      "fill_hint": "Số tiền tạm tính theo giá vé máy bay hiện tại; nếu nhiều tàu, lấy vé (khứ hồi) chặng gần nhất tới Việt Nam"
+    },
+    "chi_phi_di_lai_tu_vn_den_noi_lam_viec_nld_tra": {
+      "check_type": "declaration",
+      "fill_hint": "Điền 0"
+    },
+    "dia_diem_lam_viec": {
+      "check_type": "regulated",
+      "fill_hint": "Ghi 'Trên các tàu …' (điền tên các tàu người lao động dự kiến làm việc)",
+      "check_aspect": "Kiểm tra địa điểm làm việc rõ ràng, hợp pháp theo quy định."
+    },
+    "ky_quy_vnd": {
+      "fill_hint": "Điền 0"
+    },
+    "so_lao_dong_nu": {
+      "fill_hint": "Ghi theo thực tế"
+    },
+    "thoi_gio_lam_viec": {
+      "fill_hint": "Ghi: Làm việc 8 giờ/ngày, 48 giờ/tuần hoặc theo thực tế đàm phán trong HĐCU"
+    },
+    "thoi_gio_nghi_ngoi": {
+      "fill_hint": "Ghi: Được nghỉ 1 ngày/tuần theo quy định của Công ước MLC 2006 hoặc theo thực tế đàm phán trong HĐCU"
+    },
+    "tien_bhxh_viet_nam_nld_nop": {
+      "check_type": "declaration",
+      "fill_hint": "Điền số tiền (nếu có); nếu mức đóng khác nhau, ghi theo vị trí có số lượng nhiều nhất/hoặc vị trí lương thấp nhất"
+    },
+    "tien_dich_vu_doi_tac_chi_tra": {
+      "fill_hint": "Số tiền dịch vụ đối tác chi trả theo HĐ/TYC, chọn đơn vị tiền, chọn Lao động; nếu nhiều mức thì tính tổng chia bình quân số LĐ, chọn Bình quân lao động",
+      "check_aspect": "Tiền dịch vụ do bên nước ngoài tiếp nhận chi trả. Căn cứ Luật 69/2020 Điều 19 khoản 2 điểm n và Phụ lục TT 02/2024 (Nhật Bản ≥ 5.000 Yên/người/tháng, nghề hộ lý ≥ 10.000 Yên; Hàn Quốc ≥ 01 tháng lương cơ bản/hợp đồng). Kiểm tra có thỏa thuận đạt mức tối thiểu theo phụ lục."
+    },
+    "tien_dich_vu_nld_nop": {
+      "check_aspect": "Tiền dịch vụ NLĐ nộp. Căn cứ Luật 69/2020 Điều 23: khoản 2 — phải thỏa thuận và ghi rõ trong hợp đồng, nếu bên nước ngoài tiếp nhận đã trả thì chỉ được thu phần còn thiếu; khoản 4 điểm a — mức trần ≤ 01 tháng tiền lương/hợp đồng cho mỗi 12 tháng làm việc (sĩ quan, thuyền viên tàu vận tải biển ≤ 1,5 tháng), hợp đồng ≥ 36 tháng thì tổng ≤ 03 tháng lương. Điều 7 khoản 9 nghiêm cấm thu tiền dịch vụ trái quy định. FAIL nếu vượt trần hoặc thu khi bên nước ngoài đã chi trả đủ."
+    },
+    "tien_lam_them_gio": {
+      "fill_hint": "Ghi thỏa thuận về tiền làm thêm giờ như trong HĐCU (theo luật pháp nước tiếp nhận)",
+      "check_aspect": "Tiền làm thêm giờ — theo pháp luật nước tiếp nhận và Phụ lục TT 02/2024 (VD Đài Loan ≥ 200% ngày nghỉ/lễ). Deferred_foreign.",
+      "check_type": "deferred_foreign"
+    },
+    "tien_luong": {
+      "check_type": "deferred_foreign",
+      "check_aspect": "Tiền lương theo hợp đồng — cơ sở tính mức trần tiền dịch vụ (Luật 69/2020 Điều 23 khoản 4). Đối chiếu mức lương tối thiểu theo Phụ lục TT 02/2024 của thị trường. Deferred_foreign: xác thực theo pháp luật nước tiếp nhận."
+    },
+    "ve_may_bay_text": {
+      "fill_hint": "Ghi: NSDLĐ chi trả vé máy bay lượt đi từ Việt Nam tới nơi nhập tàu và lượt về từ nơi xuống tàu về Việt Nam sau khi hoàn thành hợp đồng",
+      "check_aspect": "Trách nhiệm chi trả vé máy bay VN↔nơi làm việc. Căn cứ Phụ lục TT 02/2024 theo từng thị trường: thông thường bên nước ngoài tiếp nhận chi trả tối thiểu 01 lượt (Nhật Bản khứ hồi; Hàn Quốc/Đài Loan ≥ 01 lượt). FAIL nếu hợp đồng đẩy toàn bộ chi phí vé cho NLĐ trái phụ lục."
+    }
+  },
+  "field_check_mode": {
+    "always_check": [
+      "so_lao_dong_nu",
+      "so_lao_dong_co_nghe",
+      "tien_luong",
+      "tien_lam_them_gio",
+      "dia_diem_lam_viec",
+      "thoi_gio_lam_viec",
+      "thoi_gio_nghi_ngoi",
+      "an_toan_ve_sinh_lao_dong",
+      "cac_phu_cap_khac_tien_thuong",
+      "cac_khoan_khau_tru",
+      "dieu_kien_an_o_sinh_hoat",
+      "cac_che_do_bao_hiem",
+      "che_do_kham_chua_benh_suc_khoe_sinh_san"
+    ],
+    "optional_check": [
+      "so_cong_van",
+      "ngay_cong_van",
+      "ngay_ky_hop_dong",
+      "ve_may_bay_text",
+      "bao_lanh",
+      "thoi_gian_du_kien_xuat_canh",
+      "tien_dich_vu_doi_tac_chi_tra",
+      "chi_phi_di_lai_tu_vn_den_noi_lam_viec_doi_tac_tra",
+      "tien_dao_tao_doi_tac_ho_tro",
+      "tien_bd_ky_nang_nghe_doi_tac_ho_tro",
+      "tien_bd_ngoai_ngu_doi_tac_ho_tro",
+      "tien_visa_doi_tac_ho_tro",
+      "tien_dong_gop_quy_htvlnn_doi_tac_ho_tro",
+      "chi_phi_kham_suc_khoe_doi_tac_ho_tro",
+      "ho_tro_khac_doi_tac",
+      "chi_phi_bd_knn_nn_nld_nop",
+      "tien_bhxh_viet_nam_nld_nop",
+      "chi_phi_ho_chieu_lltp_nld_nop",
+      "thi_thuc_visa_nld_nop",
+      "chi_phi_khac_nld_nop",
+      "ky_quy_vnd",
+      "thoi_gian_tuyen_chon_thang",
+      "tien_dich_vu_nld_nop",
+      "chi_phi_di_lai_tu_vn_den_noi_lam_viec_nld_tra",
+      "dong_gop_quy_htvlnn_nld_nop",
+      "chi_phi_kham_suc_khoe_nld_nop"
+    ],
+    "required_one_of": [
+      [
+        "tien_dich_vu_nld_nop",
+        "tien_dich_vu_doi_tac_chi_tra"
+      ],
+      [
+        "chi_phi_di_lai_tu_vn_den_noi_lam_viec_nld_tra",
+        "chi_phi_di_lai_tu_vn_den_noi_lam_viec_doi_tac_tra"
+      ]
+    ],
+    "note": "always_check gom cac truong BAT BUOC theo Dieu 19 Luat 69/2020/QH14 (thieu -> NEEDS_SUPPLEMENT, khong duoc PASS). required_one_of: moi cap phai co it nhat 1 truong co gia tri (trach nhiem chi tra thuoc 1 trong 2 ben).",
+    "missing_is_fail": [
+      "che_do_kham_chua_benh_suc_khoe_sinh_san"
+    ]
+  },
+  "final_verdict_policy": {
+    "fail_if_any_fail": true,
+    "inconclusive_if_any_inconclusive_and_no_fail": true,
+    "needs_supplement_if_missing_required": true
+  },
+  "work_id": "cong_viec_tren_bien"
+}

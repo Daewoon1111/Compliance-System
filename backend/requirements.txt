@@ -1,0 +1,59 @@
+# --- Web API ---
+# fastapi 0.115.0 kéo starlette 0.38.6 — dính CVE-2024-47874 (multipart lớn làm cạn RAM)
+# và CVE-2025-54121 (ghi file tạm CHẶN event loop khi upload lớn). Cả hai đúng đường
+# POST /api/v1/sessions của dự án này. 0.115.6 kéo starlette >= 0.41.3 (đã vá).
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+# python-multipart < 0.0.18: CVE-2024-53981 — phần multipart dị dạng làm CPU quay 100%
+# (DoS không cần xác thực) ngay ở endpoint tải hồ sơ.
+python-multipart==0.0.18
+
+# --- Settings / Validation ---
+pydantic==2.8.2
+pydantic-settings==2.4.0
+
+# --- HTTP client (goi Ollama local) ---
+httpx==0.27.2
+
+# --- Date parsing ---
+python-dateutil==2.9.0.post0
+
+# --- Vector DB + ONNX embedding fallback ---
+chromadb==0.5.5
+
+# --- Embeddings + OCR Vintern (cùng dùng torch/transformers) ---
+sentence-transformers==3.0.1
+# transformers 4.43.x chạy được mã InternVL2.5 của Vintern-1B-v3.5 (config ghi 4.42.1).
+transformers==4.43.3
+# torch 2.6.0 trên Windows hay lỗi nạp fbgemm.dll (thiếu libomp140.x86_64.dll) ->
+# OSError 126/127 -> embedding rơi về ONNX MiniLM -> lệch chiều vector. Ghim 2.5.1.
+# Máy có GPU NVIDIA: cài bản CUDA cùng số hiệu để Vintern chạy GPU (vintern_device=auto):
+#   pip install "torch==2.5.1" "torchvision==0.20.1" --index-url https://download.pytorch.org/whl/cu121
+# Máy chỉ CPU: --index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+torchvision==0.20.1
+
+# --- OCR: Vintern-1B-v3.5 (5CD-AI, InternVL2.5-1B) ---
+# Mã mô hình tải theo revision GHIM trong core.Settings.vintern_revision (trust_remote_code).
+# Lần chạy đầu tải ~1 GB về ~/.cache/huggingface (cần mạng 1 lần).
+timm==1.0.9
+einops==0.8.0
+accelerate==0.33.0
+# Render PDF -> anh DPI cao (self-contained, khong can DLL he thong)
+pypdfium2==4.30.0
+
+# --- Utils ---
+numpy==1.26.4
+# Pillow: chặn <12 tránh breaking.
+# Sàn nâng 10.2 -> 10.3: 10.2.0 dính CVE-2024-28219 (tràn bộ đệm trong _imagingcms)
+# và đường xử lý ảnh ở đây nhận file do người dùng tải lên.
+Pillow>=10.3,<12
+
+# --- Xuất báo cáo PDF ---
+fpdf2==2.8.1
+
+# --- Test (dev) ---
+pytest==8.3.3
+# Đo độ phủ (npm run test:cov). Cổng chặn ≥75% đặt trong chính lệnh đó, không phải
+# trong một tài liệu — con số ghi trong tài liệu thì không ai chạy lại.
+pytest-cov==5.0.0

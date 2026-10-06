@@ -1,0 +1,481 @@
+{
+  "display_name": "Nền chung mọi khu vực",
+  "jurisdiction": "VN",
+  "version": "2026-07-21",
+  "doc_types": [
+    "labor_law",
+    "decree",
+    "circular"
+  ],
+  "notes": [
+    "TẦNG NỀN — danh mục trường dùng chung cho MỌI khu vực. File khu vực chỉ khai phần KHÁC.",
+    "Thứ tự chồng tầng: _base -> <khu vực> -> countries/<thị trường> -> works/<loại hình>.",
+    "Trước 10/08/2026 mỗi file khu vực chép trọn 50 trường: 8 bản sao của cùng một danh mục, sửa một nhãn phải sửa 8 chỗ và bỏ sót một chỗ thì một thị trường lặng lẽ chạy theo bản cũ."
+  ],
+  "fields_catalog": {
+    "so_cong_van": {
+      "label": "Số công văn đăng ký hợp đồng",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Số của Văn bản đăng ký hợp đồng, lấy theo hệ thống văn bản của DN trước khi ký số",
+      "check_aspect": "Kiểm tra hợp đồng có số văn bản đăng ký hợp lệ; mang tính thủ tục hành chính.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "ngay_cong_van": {
+      "label": "Ngày công văn",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Ngày lấy số công văn theo hệ thống văn bản của doanh nghiệp",
+      "check_aspect": "Kiểm tra ngày công văn hợp lệ và nhất quán với ngày ký hợp đồng.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "thoi_gian_tuyen_chon_thang": {
+      "label": "Thời gian tuyển chọn (tháng)",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Ghi theo thực tế",
+      "check_aspect": "Kiểm tra thời gian tuyển chọn ghi theo thực tế (mang tính thông tin).",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "thoi_gian_du_kien_xuat_canh": {
+      "label": "Thời gian dự kiến xuất cảnh",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Ghi thời gian dự kiến xuất cảnh",
+      "check_aspect": "Kiểm tra thời gian dự kiến xuất cảnh ghi hợp lý (mang tính thông tin).",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "tong_so_lao_dong": {
+      "label": "Tổng số lao động",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Số lượng lao động ghi trong HĐCU (nếu ký với chủ sử dụng) hoặc theo Thư yêu cầu của chủ sử dụng",
+      "check_aspect": "Tổng số lao động là thông tin khai báo theo hợp đồng cung ứng/thư yêu cầu; ghi nhận giá trị, không có ngưỡng pháp lý để đối chiếu.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "so_lao_dong_nu": {
+      "check_aspect": "Kiểm tra số lao động nữ ghi đúng thực tế; liên quan quy định bảo vệ lao động nữ.",
+      "check_type": "declaration",
+      "field_group": "declaration",
+      "fill_hint": "Ghi số lượng lao động nữ theo HĐCU (nếu ký với chủ sử dụng) hoặc theo Thư yêu cầu của chủ sử dụng",
+      "label": "Số lao động nữ",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "so_lao_dong_co_nghe": {
+      "label": "Số lao động có nghề",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Số lao động bên tiếp nhận yêu cầu phải có trình độ tay nghề; nếu không có ghi 0",
+      "check_aspect": "Kiểm tra số lao động có nghề ghi đúng yêu cầu của bên tiếp nhận.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "thoi_han_hop_dong": {
+      "label": "Thời hạn hợp đồng",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "fill_hint": "Thời hạn hợp đồng lao động (vd: 5 năm, 3 năm, 1 năm 6 tháng)",
+      "check_aspect": "Điều 19 khoản 2 điểm c Luật 69/2020: hợp đồng phải ghi thời hạn. Đối chiếu nhất quán giữa văn bản đăng ký và hợp đồng cung ứng; một số phụ lục yêu cầu tối thiểu 01 năm.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "ky_quy_vnd": {
+      "check_aspect": "Tiền ký quỹ của người lao động phải đúng đối tượng và không vượt mức theo quy định; nhiều trường hợp không được thu (ghi 0).",
+      "check_type": "regulated",
+      "field_group": "check",
+      "field_section": "Thông tin hợp đồng",
+      "label": "Ký quỹ"
+    },
+    "bao_lanh": {
+      "label": "Bảo lãnh",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ghi Không",
+      "check_aspect": "Điều 7 khoản 10 Luật 69/2020/QH14 nghiêm cấm áp dụng biện pháp bảo đảm thực hiện nghĩa vụ khác ngoài ký quỹ và bảo lãnh. Điều 56 khoản 1: chỉ bảo lãnh khi người lao động không đủ tiền ký quỹ hoặc để thực hiện biện pháp bảo đảm đã thỏa thuận; Điều 58: hợp đồng bảo lãnh phải lập thành văn bản, có phạm vi bảo lãnh, quyền - nghĩa vụ các bên và điều kiện chấm dứt. HỢP LỆ khi ghi 'Không' hoặc nêu bảo lãnh đúng trường hợp, đúng phạm vi và có hợp đồng bảo lãnh bằng văn bản. KHÔNG HỢP LỆ khi hợp đồng đặt ra thế chấp, cầm cố, giữ giấy tờ tùy thân hay biện pháp bảo đảm nào khác ngoài ký quỹ và bảo lãnh.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "ngay_ky_hop_dong": {
+      "label": "Ngày ký hợp đồng cung ứng",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ngày DN và Bên tiếp nhận nước ngoài ký Hợp đồng cung ứng",
+      "check_aspect": "Xác định ngày ký để áp dụng đúng văn bản pháp luật đang có hiệu lực; hợp đồng phải được ký khi giấy phép dịch vụ còn hiệu lực.",
+      "field_section": "Thông tin hợp đồng"
+    },
+    "hieu_luc_giay_phep_dich_vu_viet_nam": {
+      "label": "Thời hạn hiệu lực giấy phép dịch vụ",
+      "field_group": "check",
+      "check_type": "regulated",
+      "field_section": "Thông tin hợp đồng",
+      "fill_hint": "Ngày cấp / ngày hết hiệu lực của giấy phép hoạt động dịch vụ",
+      "check_aspect": "Hợp đồng cung ứng chỉ hợp lệ khi được ký trong thời gian giấy phép hoạt động dịch vụ còn hiệu lực — đối chiếu trực tiếp với Ngày ký hợp đồng cung ứng. FAIL nếu ngày ký nằm ngoài thời hạn hiệu lực."
+    },
+    "dia_diem_lam_viec": {
+      "check_aspect": "Kiểm tra địa điểm làm việc rõ ràng, hợp pháp theo quy định.",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "Ghi địa chỉ nơi làm việc của NLĐ, thông thường là địa chỉ chủ sử dụng; nếu khác phải ghi rõ trong Thư yêu cầu kèm giấy tờ chứng minh cơ sở SXKD hợp pháp của chủ sử dụng",
+      "label": "Địa điểm làm việc",
+      "field_section": "Công việc & nơi làm việc"
+    },
+    "thoi_gio_lam_viec": {
+      "check_aspect": "Thời giờ làm việc phải phù hợp giới hạn của pháp luật Việt Nam và nước tiếp nhận.",
+      "check_type": "deferred_foreign",
+      "field_group": "check",
+      "fill_hint": "Ghi thời gian làm việc mỗi ngày/tuần theo HĐCU/Thư yêu cầu (nếu có thỏa thuận)",
+      "label": "Thời giờ làm việc",
+      "field_section": "Thời giờ"
+    },
+    "thoi_gio_nghi_ngoi": {
+      "check_aspect": "Thời giờ nghỉ ngơi phải bảo đảm mức tối thiểu theo quy định pháp luật và công ước áp dụng.",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "Thời gian nghỉ trong ca/giữa các ca/trong mỗi tuần; cách ghi: 'Thời gian nghỉ giữa ca … phút' hoặc 'Cứ mỗi … tiếng làm việc nghỉ … phút' theo HĐCU và HĐLĐ dự kiến ký",
+      "label": "Thời giờ nghỉ ngơi",
+      "field_section": "Thời giờ"
+    },
+    "tien_luong": {
+      "label": "Tiền lương",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ghi số tiền lương theo tháng; nếu lương theo giờ thì quy ra lương theo tháng để ghi",
+      "check_aspect": "Tiền lương theo hợp đồng — cơ sở tính mức trần tiền dịch vụ (Luật 69/2020 Điều 23 khoản 4). Đối chiếu mức lương tối thiểu theo Phụ lục TT 02/2024 của thị trường. Deferred_foreign: xác thực theo pháp luật nước tiếp nhận.",
+      "field_section": "Lương & khấu trừ"
+    },
+    "cac_phu_cap_khac_tien_thuong": {
+      "check_aspect": "Phụ cấp, tiền thưởng ngoài lương phải được ghi rõ và không được dùng để thay thế/bù trừ tiền lương cơ bản. Đối chiếu Điều 19 khoản 2 Luật 69/2020/QH14 và Phụ lục TT 02/2024 của thị trường.",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "Các khoản chủ sử dụng trả thêm, thưởng thêm ngoài tiền lương (theo HĐCU và Thư yêu cầu)",
+      "label": "Phụ cấp khác, tiền thưởng",
+      "field_section": "Lương & khấu trừ"
+    },
+    "tien_lam_them_gio": {
+      "check_aspect": "Tiền làm thêm giờ — theo pháp luật nước tiếp nhận và Phụ lục TT 02/2024 (VD Đài Loan ≥ 200% ngày nghỉ/lễ). Deferred_foreign.",
+      "field_group": "check",
+      "field_section": "Lương & khấu trừ",
+      "label": "Tiền làm thêm giờ"
+    },
+    "cac_khoan_khau_tru": {
+      "label": "Các khoản khấu trừ từ lương",
+      "field_group": "check",
+      "check_type": "deferred_foreign",
+      "fill_hint": "Các khoản sẽ khấu trừ từ lương của NLĐ trong thời gian làm việc theo HĐCU/TYC",
+      "check_aspect": "Các khoản khấu trừ từ lương — theo pháp luật nước tiếp nhận; Phụ lục TT 02/2024 giới hạn khấu trừ ăn/ở (Hàn Quốc ≤ 20% lương, ≤ 15% nếu ăn miễn phí; Đài Loan ≤ 2.500 Đài tệ/tháng; Nhật Bản tiền nhà ≤ 15% lương cơ bản). FAIL nếu khấu trừ vượt trần phụ lục.",
+      "field_section": "Lương & khấu trừ"
+    },
+    "dieu_kien_an_o_sinh_hoat": {
+      "check_aspect": "Điều kiện ăn, ở, sinh hoạt và việc đi lại từ nơi ở đến nơi làm việc phải bảo đảm theo quy định và hợp đồng cung ứng (Điều 19 khoản 2 điểm e Luật 69/2020/QH14).",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "Ghi theo HĐCU/TYC; ghi rõ số tiền ở (tiền thuê nhà) nếu người lao động phải chi trả. Lao động giúp việc gia đình: người sử dụng lao động cung cấp miễn phí chỗ ở và 03 bữa ăn/ngày. Ghi rõ bên nào bố trí, chi trả phương tiện đi lại từ nơi ở đến nơi làm việc.",
+      "label": "Điều kiện ăn, ở, sinh hoạt",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "ve_may_bay_text": {
+      "check_aspect": "Trách nhiệm chi trả vé máy bay VN↔nơi làm việc. Căn cứ Phụ lục TT 02/2024 theo từng thị trường: thông thường bên nước ngoài tiếp nhận chi trả tối thiểu 01 lượt (Nhật Bản khứ hồi; Hàn Quốc/Đài Loan ≥ 01 lượt). FAIL nếu hợp đồng đẩy toàn bộ chi phí vé cho NLĐ trái phụ lục.",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "Ghi: Bên tiếp nhận chi trả vé máy bay từ VN đến nơi làm việc tại … (tên nước) và về nước; hoặc bên tiếp nhận trả lượt đi, NLĐ trả lượt về; giúp việc gia đình: NSDLĐ chi trả cả đi và về",
+      "label": "Vé máy bay",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "cac_che_do_bao_hiem": {
+      "check_aspect": "Điều 19 khoản 2 điểm l Luật 69/2020/QH14: hợp đồng cung ứng lao động phải ghi chế độ bảo hiểm xã hội, bảo hiểm y tế, bảo hiểm tai nạn lao động - bệnh nghề nghiệp. HỢP LỆ khi kê rõ từng chế độ bảo hiểm người lao động được tham gia và bên đóng/chi trả. CẦN BỔ SUNG khi hợp đồng không nêu chế độ nào hoặc chỉ ghi chung chung không xác định được người lao động được tham gia bảo hiểm gì. KHÔNG HỢP LỆ khi hợp đồng đẩy chi phí bảo hiểm bắt buộc sang người lao động trái quy định của nước tiếp nhận.",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "KÊ RÕ TỪNG chế độ bảo hiểm người lao động được tham gia và bên đóng, đúng như hợp đồng ghi. Câu chung chung kiểu 'tham gia bảo hiểm theo quy định của nước tiếp nhận' không xác định được chế độ nào nên sẽ ra CẦN BỔ SUNG.",
+      "label": "Các chế độ bảo hiểm",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "che_do_kham_chua_benh_suc_khoe_sinh_san": {
+      "label": "Khám chữa bệnh, chăm sóc sức khỏe sinh sản",
+      "field_group": "check",
+      "check_type": "deferred_foreign",
+      "fill_hint": "Ghi chế độ khám chữa bệnh và chăm sóc sức khỏe sinh sản người lao động được hưởng",
+      "check_aspect": "Điều 19 khoản 2 điểm g Luật 69/2020: phải ghi chế độ khám bệnh, chữa bệnh, chăm sóc sức khỏe sinh sản. Mức cụ thể theo luật nước tiếp nhận.",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "cham_dut_truoc_han_va_boi_thuong": {
+      "label": "Chấm dứt hợp đồng trước hạn và bồi thường",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ghi điều kiện chấm dứt hợp đồng trước thời hạn và mức bồi thường của mỗi bên",
+      "check_aspect": "Điều 19 khoản 2 điểm h Luật 69/2020: phải ghi điều kiện chấm dứt hợp đồng trước thời hạn và trách nhiệm bồi thường thiệt hại. Điều khoản phạt/bồi thường ĐƠN PHƯƠNG bất lợi cho người lao động là trái quy định.",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "trach_nhiem_khi_gap_rui_ro": {
+      "label": "Trách nhiệm khi người lao động gặp rủi ro",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ghi trách nhiệm của các bên khi người lao động bị tai nạn, ốm đau, tử vong hoặc gặp rủi ro khác",
+      "check_aspect": "Điều 19 khoản 2 điểm i Luật 69/2020: phải ghi trách nhiệm của các bên khi người lao động gặp rủi ro trong thời gian làm việc ở nước ngoài.",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "trach_nhiem_xu_ly_phat_sinh": {
+      "label": "Trách nhiệm xử lý vấn đề phát sinh",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ghi bên nào chịu trách nhiệm xử lý khi phát sinh vấn đề với người lao động ở nước ngoài",
+      "check_aspect": "Điều 19 khoản 2 điểm k Luật 69/2020: phải ghi trách nhiệm giải quyết vấn đề phát sinh đối với người lao động trong thời gian làm việc ở nước ngoài.",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "giai_quyet_tranh_chap_luat_ap_dung": {
+      "label": "Giải quyết tranh chấp và luật áp dụng",
+      "field_group": "check",
+      "check_type": "regulated",
+      "fill_hint": "Ghi cơ chế, thủ tục giải quyết tranh chấp và pháp luật áp dụng",
+      "check_aspect": "Điều 19 khoản 2 điểm l Luật 69/2020: phải ghi cơ chế, thủ tục và pháp luật áp dụng để giải quyết tranh chấp.",
+      "field_section": "Điều khoản hợp đồng"
+    },
+    "an_toan_ve_sinh_lao_dong": {
+      "check_aspect": "Điều khoản an toàn, vệ sinh lao động và điều kiện, môi trường làm việc phải bảo đảm nghĩa vụ của người sử dụng lao động theo Điều 19 khoản 2 Luật 69/2020/QH14 và quy định về an toàn, vệ sinh lao động.",
+      "check_type": "regulated",
+      "field_group": "check",
+      "fill_hint": "Câu gợi ý: người sử dụng lao động phải tổ chức huấn luyện an toàn, vệ sinh lao động; cung cấp miễn phí đầy đủ trang thiết bị làm việc và dụng cụ bảo hộ phù hợp ngành nghề; bảo đảm nơi làm việc an toàn, vệ sinh. Mô tả kèm điều kiện, môi trường làm việc thực tế (trong nhà xưởng / ngoài trời / trên tàu, tiếng ồn, nhiệt độ, hóa chất…); hoặc ghi theo HĐCU/TYC.",
+      "label": "An toàn, vệ sinh lao động",
+      "field_section": "An toàn lao động"
+    },
+    "tien_dich_vu_doi_tac_chi_tra": {
+      "check_aspect": "Tiền dịch vụ do bên nước ngoài tiếp nhận chi trả. Căn cứ Luật 69/2020 Điều 19 khoản 2 điểm n và Phụ lục TT 02/2024 (Nhật Bản ≥ 5.000 Yên/người/tháng, nghề hộ lý ≥ 10.000 Yên; Hàn Quốc ≥ 01 tháng lương cơ bản/hợp đồng). Kiểm tra có thỏa thuận đạt mức tối thiểu theo phụ lục.",
+      "check_type": "regulated",
+      "field_group": "payer",
+      "fill_hint": "Số tiền Phí dịch vụ tuyển dụng đối tác chi trả theo HĐ/TYC, chọn Theo Lao động; nếu nhiều mức thì tính tổng chia bình quân số LĐ, chọn Bình quân lao động",
+      "label": "Tiền dịch vụ",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "chi_phi_di_lai_tu_vn_den_noi_lam_viec_doi_tac_tra": {
+      "check_aspect": "Chi phí đi lại VN→nơi làm việc do bên tiếp nhận trả — phù hợp trách nhiệm vé máy bay tại Phụ lục TT 02/2024. Khoản làm giảm gánh nặng chi phí NLĐ, hợp lệ khi đúng thỏa thuận phụ lục.",
+      "check_type": "regulated",
+      "field_group": "payer",
+      "fill_hint": "Số tiền tạm tính theo giá vé máy bay hiện tại",
+      "label": "Chi phí đi lại",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "tien_dao_tao_doi_tac_ho_tro": {
+      "label": "Tiền đào tạo",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Nếu đối tác hỗ trợ chung tiền đào tạo (cả ngoại ngữ và kỹ năng nghề, không tách) thì ghi vào ô này; không có ghi 0",
+      "check_aspect": "Chi phí đào tạo do bên tiếp nhận hỗ trợ. Phụ lục TT 02/2024 (Nhật Bản: đào tạo tối thiểu 15.000 Yên nghề khác / 100.000 Yên hộ lý N4). Kiểm tra mức hỗ trợ theo phụ lục thị trường.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "tien_bd_ky_nang_nghe_doi_tac_ho_tro": {
+      "label": "Tiền bồi dưỡng kỹ năng nghề",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Số tiền bồi dưỡng kỹ năng nghề đối tác nước ngoài hỗ trợ; không hỗ trợ ghi 0",
+      "check_aspect": "Bồi dưỡng kỹ năng nghề do bên tiếp nhận hỗ trợ. Phụ lục TT 02/2024 (Nhật Bản SSW: kỹ năng nghề ≥ 50.000 Yên/người). Kiểm tra theo phụ lục.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "tien_bd_ngoai_ngu_doi_tac_ho_tro": {
+      "label": "Tiền bồi dưỡng ngoại ngữ",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Số tiền bồi dưỡng ngoại ngữ đối tác nước ngoài hỗ trợ; không hỗ trợ ghi 0",
+      "check_aspect": "Bồi dưỡng ngoại ngữ do bên tiếp nhận hỗ trợ. Phụ lục TT 02/2024 (Nhật Bản SSW: ngoại ngữ ≥ 50.000 Yên/người). Kiểm tra theo phụ lục.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "tien_visa_doi_tac_ho_tro": {
+      "label": "Tiền visa",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Ghi số tiền và chọn Loại tiền (nếu có); không có ghi 0",
+      "check_aspect": "Hỗ trợ visa do bên tiếp nhận chi trả — đối chiếu Phụ lục TT 02/2024; hợp lệ khi đúng thỏa thuận.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "tien_dong_gop_quy_htvlnn_doi_tac_ho_tro": {
+      "label": "Đóng góp Quỹ HTVLNN",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Ghi số tiền và chọn Loại tiền (nếu có); không có ghi 0",
+      "check_aspect": "Đối tác hỗ trợ đóng góp Quỹ HTVLNN (Luật 69/2020 Điều 66) — khoản hợp lệ.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "chi_phi_kham_suc_khoe_doi_tac_ho_tro": {
+      "label": "Chi phí khám sức khỏe",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Ghi số tiền và chọn Loại tiền (nếu có); không có ghi 0",
+      "check_aspect": "Hỗ trợ khám sức khỏe do bên tiếp nhận chi trả — đối chiếu thỏa thuận với Phụ lục TT 02/2024; hợp lệ.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "ho_tro_khac_doi_tac": {
+      "label": "Hỗ trợ khác",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Nếu có thì điền số cụ thể, chọn Loại tiền",
+      "check_aspect": "Khoản hỗ trợ khác do bên tiếp nhận chi trả — đối chiếu Phụ lục TT 02/2024; hợp lệ khi đúng thỏa thuận, làm giảm gánh nặng chi phí NLĐ.",
+      "field_section": "Người sử dụng lao động chi trả"
+    },
+    "tien_dich_vu_nld_nop": {
+      "check_aspect": "Tiền dịch vụ NLĐ nộp. Luật 69/2020 Điều 23 (≤1 tháng lương/12 tháng). TT 02/2024 Phụ lục: giúp việc gia đình Đông Nam Á — bên tiếp nhận trả TOÀN BỘ tiền dịch vụ; Ma-lai-xi-a (trừ GVGĐ) người SDLĐ trả 50% một tháng lương tối thiểu. FAIL nếu thu NLĐ khoản mà phụ lục quy định bên tiếp nhận trả.",
+      "check_type": "regulated",
+      "field_group": "payer",
+      "fill_hint": "Số tiền dịch vụ NLĐ phải nộp theo thỏa thuận với doanh nghiệp dịch vụ",
+      "label": "Tiền dịch vụ",
+      "field_section": "Người lao động phải trả"
+    },
+    "chi_phi_di_lai_tu_vn_den_noi_lam_viec_nld_tra": {
+      "check_aspect": "Chi phí đi lại từ VN đến nơi làm việc do NLĐ trả. Căn cứ Luật 69/2020 Điều 19 khoản 2 điểm p và Phụ lục TT 02/2024: trách nhiệm vé máy bay (tối thiểu 01 lượt) thuộc bên nước ngoài tiếp nhận ở hầu hết thị trường. Đối chiếu phụ lục thị trường — nếu quy định bên tiếp nhận chi trả mà hợp đồng bắt NLĐ trả thì FAIL.",
+      "check_type": "declaration",
+      "field_group": "payer",
+      "fill_hint": "Điền 0 nếu NLĐ không phải chi trả hoặc chỉ trả lượt về; điền số cụ thể nếu NLĐ phải trả vé lượt đi",
+      "label": "Chi phí đi lại",
+      "field_section": "Người lao động phải trả"
+    },
+    "dong_gop_quy_htvlnn_nld_nop": {
+      "label": "Đóng góp Quỹ HTVLNN",
+      "field_group": "payer",
+      "check_type": "regulated",
+      "fill_hint": "100.000",
+      "check_aspect": "Đóng góp Quỹ Hỗ trợ việc làm ngoài nước. Căn cứ Luật 69/2020 Điều 6 khoản 2 điểm i và Điều 66; mức đóng theo quy định (100.000 đồng/người/hợp đồng). Khoản hợp lệ; kiểm tra mức đóng đúng quy định.",
+      "field_section": "Người lao động phải trả"
+    },
+    "chi_phi_bd_knn_nn_nld_nop": {
+      "label": "Chi phí bồi dưỡng kỹ năng nghề, ngoại ngữ",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Điền số tiền NLĐ phải chi trả (bồi dưỡng kỹ năng nghề, ngoại ngữ)",
+      "check_aspect": "Chi phí bồi dưỡng kỹ năng nghề/ngoại ngữ NLĐ nộp. Căn cứ Luật 69/2020 Điều 18 khoản 2 điểm b (chỉ được thu phí đào tạo theo quy định pháp luật), tách bạch với tiền dịch vụ (Điều 23). Nhiều thị trường (Nhật Bản) bên tiếp nhận chi trả phí đào tạo (TT 02/2024 Phụ lục II). Kiểm tra: chỉ thu theo thực chi/định mức đào tạo, không trùng tiền dịch vụ; nếu phụ lục quy định bên tiếp nhận trả thì NLĐ không phải nộp.",
+      "field_section": "Người lao động phải trả"
+    },
+    "chi_phi_kham_suc_khoe_nld_nop": {
+      "label": "Chi phí khám sức khỏe",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Điền số tiền NLĐ phải chi trả khám sức khỏe",
+      "check_aspect": "Chi phí khám sức khỏe NLĐ nộp — khoản thực chi theo hóa đơn cơ sở y tế, không thuộc tiền dịch vụ. Hợp lệ nếu thu đúng thực chi; một số thị trường bên tiếp nhận hỗ trợ (đối chiếu phụ lục TT 02/2024).",
+      "field_section": "Người lao động phải trả"
+    },
+    "tien_bhxh_viet_nam_nld_nop": {
+      "check_aspect": "Tiền BHXH Việt Nam NLĐ nộp — nghĩa vụ theo pháp luật BHXH, khoản hợp lệ; kiểm tra mức đóng theo quy định, không thu ngoài quy định.",
+      "check_type": "declaration",
+      "field_group": "payer",
+      "fill_hint": "Điền số tiền (nếu có)",
+      "label": "Tiền BHXH Việt Nam",
+      "field_section": "Người lao động phải trả"
+    },
+    "chi_phi_ho_chieu_lltp_nld_nop": {
+      "label": "Chi phí hộ chiếu, lý lịch tư pháp",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Điền số tiền cộng gộp hộ chiếu + lý lịch tư pháp (nếu có cả 2); nếu không thì điền tiền làm hộ chiếu",
+      "check_aspect": "Chi phí hộ chiếu, lý lịch tư pháp — lệ phí nhà nước thực chi, khoản hợp lệ; kiểm tra thu đúng lệ phí quy định, không thu chênh lệch.",
+      "field_section": "Người lao động phải trả"
+    },
+    "thi_thuc_visa_nld_nop": {
+      "label": "Thị thực/visa",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Điền số tiền NLĐ phải chi trả nếu bên tiếp nhận không hỗ trợ",
+      "check_aspect": "Thị thực/visa NLĐ nộp. Đối chiếu Phụ lục TT 02/2024: một số thị trường bên tiếp nhận chi trả visa. Nếu NLĐ nộp thì phải là lệ phí thực chi; FAIL nếu phụ lục quy định bên tiếp nhận trả.",
+      "field_section": "Người lao động phải trả"
+    },
+    "chi_phi_khac_nld_nop": {
+      "label": "Chi phí khác",
+      "field_group": "payer",
+      "check_type": "declaration",
+      "fill_hint": "Nếu có thì điền số cụ thể, có thể cộng gộp nếu nhiều khoản khác nhau",
+      "check_aspect": "Chi phí khác NLĐ nộp — điểm rủi ro cao. Căn cứ Luật 69/2020 Điều 7: nghiêm cấm thu tiền môi giới của NLĐ (khoản 8), thu tiền dịch vụ trái quy định (khoản 9), áp dụng biện pháp bảo đảm ngoài ký quỹ/bảo lãnh (khoản 10). Khoản 'khác' phải minh bạch, có căn cứ thực chi; FAIL nếu là môi giới/khoản thu trá hình hoặc không có cơ sở pháp lý.",
+      "field_section": "Người lao động phải trả"
+    },
+    "ten_doanh_nghiep_dich_vu_viet_nam": {
+      "label": "Tên doanh nghiệp dịch vụ Việt Nam",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "field_section": "Doanh nghiệp dịch vụ Việt Nam",
+      "fill_hint": "Tên doanh nghiệp dịch vụ đứng tên đăng ký hợp đồng cung ứng",
+      "check_aspect": "Điều 19 Luật 69/2020: hợp đồng phải ghi rõ bên Việt Nam ký kết."
+    },
+    "ma_so_doanh_nghiep": {
+      "label": "Mã số doanh nghiệp",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "field_section": "Doanh nghiệp dịch vụ Việt Nam",
+      "fill_hint": "Mã số doanh nghiệp / mã số thuế của doanh nghiệp dịch vụ",
+      "check_aspect": "Dùng đối chiếu doanh nghiệp với giấy phép hoạt động dịch vụ."
+    },
+    "so_giay_phep_dich_vu_viet_nam": {
+      "label": "Số giấy phép hoạt động dịch vụ",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "field_section": "Doanh nghiệp dịch vụ Việt Nam",
+      "fill_hint": "Số giấy phép hoạt động dịch vụ đưa người lao động đi làm việc ở nước ngoài",
+      "check_aspect": "Điều 10 Luật 69/2020: chỉ doanh nghiệp có giấy phép mới được đưa lao động đi."
+    },
+    "ten_ben_tiep_nhan": {
+      "label": "Tên bên nước ngoài tiếp nhận lao động",
+      "field_group": "declaration",
+      "check_type": "declaration",
+      "field_section": "Bên nước ngoài tiếp nhận",
+      "fill_hint": "Tên đối tác nước ngoài tiếp nhận lao động ghi trên hợp đồng cung ứng",
+      "check_aspect": "Điều 19 Luật 69/2020: hợp đồng phải ghi rõ bên nước ngoài tiếp nhận."
+    }
+  },
+  "field_check_mode": {
+    "always_check": [
+      "so_lao_dong_nu",
+      "so_lao_dong_co_nghe",
+      "tien_luong",
+      "tien_lam_them_gio",
+      "dia_diem_lam_viec",
+      "thoi_gio_lam_viec",
+      "thoi_gio_nghi_ngoi",
+      "an_toan_ve_sinh_lao_dong",
+      "cac_phu_cap_khac_tien_thuong",
+      "cac_khoan_khau_tru",
+      "dieu_kien_an_o_sinh_hoat",
+      "cham_dut_truoc_han_va_boi_thuong",
+      "giai_quyet_tranh_chap_luat_ap_dung",
+      "hieu_luc_giay_phep_dich_vu_viet_nam",
+      "cac_che_do_bao_hiem",
+      "che_do_kham_chua_benh_suc_khoe_sinh_san"
+    ],
+    "optional_check": [
+      "so_cong_van",
+      "ngay_cong_van",
+      "ngay_ky_hop_dong",
+      "ve_may_bay_text",
+      "bao_lanh",
+      "thoi_gian_du_kien_xuat_canh",
+      "tien_dich_vu_doi_tac_chi_tra",
+      "chi_phi_di_lai_tu_vn_den_noi_lam_viec_doi_tac_tra",
+      "tien_dao_tao_doi_tac_ho_tro",
+      "tien_bd_ky_nang_nghe_doi_tac_ho_tro",
+      "tien_bd_ngoai_ngu_doi_tac_ho_tro",
+      "tien_visa_doi_tac_ho_tro",
+      "tien_dong_gop_quy_htvlnn_doi_tac_ho_tro",
+      "chi_phi_kham_suc_khoe_doi_tac_ho_tro",
+      "ho_tro_khac_doi_tac",
+      "chi_phi_bd_knn_nn_nld_nop",
+      "tien_bhxh_viet_nam_nld_nop",
+      "chi_phi_ho_chieu_lltp_nld_nop",
+      "thi_thuc_visa_nld_nop",
+      "chi_phi_khac_nld_nop",
+      "ky_quy_vnd",
+      "thoi_gian_tuyen_chon_thang",
+      "tien_dich_vu_nld_nop",
+      "chi_phi_di_lai_tu_vn_den_noi_lam_viec_nld_tra",
+      "dong_gop_quy_htvlnn_nld_nop",
+      "chi_phi_kham_suc_khoe_nld_nop"
+    ],
+    "required_one_of": [
+      [
+        "tien_dich_vu_nld_nop",
+        "tien_dich_vu_doi_tac_chi_tra"
+      ],
+      [
+        "chi_phi_di_lai_tu_vn_den_noi_lam_viec_nld_tra",
+        "chi_phi_di_lai_tu_vn_den_noi_lam_viec_doi_tac_tra"
+      ]
+    ],
+    "note": "always_check gom cac truong BAT BUOC theo Dieu 19 Luat 69/2020/QH14 (thieu -> NEEDS_SUPPLEMENT, khong duoc PASS). required_one_of: moi cap phai co it nhat 1 truong co gia tri (trach nhiem chi tra thuoc 1 trong 2 ben).",
+    "missing_is_fail": [
+      "che_do_kham_chua_benh_suc_khoe_sinh_san"
+    ]
+  },
+  "final_verdict_policy": {
+    "fail_if_any_fail": true,
+    "inconclusive_if_any_inconclusive_and_no_fail": true,
+    "needs_supplement_if_missing_required": true
+  }
+}

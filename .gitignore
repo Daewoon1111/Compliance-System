@@ -1,0 +1,33 @@
+# ===== Bí mật / môi trường (KHÔNG commit) =====
+.env
+*.env
+!*.env.example
+backend/.env
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.venv/
+backend/.venv/
+# Cache công cụ — cấu hình ở backend/tests/ dồn pytest + ruff vào backend/.cache/.
+# `.cache/` không neo thư mục: chạy ruff từ chỗ khác `backend/` thì nó rơi ra đó.
+# Hai dòng .pytest_cache/.ruff_cache giữ lại để dọn nốt thư mục sinh trước đợt gom.
+.cache/
+.pytest_cache/
+.ruff_cache/
+
+# ===== Node / frontend =====
+node_modules/
+frontend/dist/
+frontend/node_modules/
+
+# ===== Dữ liệu runtime (tự sinh) =====
+backend/temp/
+backend/chroma_data/
+backend/app/data/settings.json
+backend/app/data/audit.jsonl
+backend/app/data/.admin_token
+
+# ===== OS / editor =====
+.DS_Store
+.vscode/

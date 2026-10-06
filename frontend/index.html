@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- ROBOTO — font chữ chính. `display=swap`: chữ hiện ngay bằng font hệ thống
+         rồi đổi khi tải xong, không để trang trắng chờ font. Máy offline thì
+         <link> hỏng im lặng và bộ font dự phòng trong index.css nhận việc. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <meta
+      name="description"
+      content="Tiền kiểm hồ sơ đăng ký hợp đồng cung ứng lao động theo pháp luật Việt Nam."
+    />
+    <!-- Đặt class 'dark' + ngôn ngữ TRƯỚC khi React dựng cây: tránh nháy nền trắng
+         khi người dùng đang ở chế độ tối (lần vẽ đầu tiên đã đúng màu). -->
+    <script>
+      (function () {
+        try {
+          var s = localStorage.getItem("datn6:theme");
+          var dark = s === "dark" || (!s && matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+          if (localStorage.getItem("datn6:lang") === "en") document.documentElement.lang = "en";
+        } catch (e) {
+          /* localStorage bị chặn -> dùng mặc định sáng + tiếng Việt */
+        }
+      })();
+    </script>
+    <title>IERCV</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "job_id": "han_quoc",
+  "display_name": "Hàn Quốc",
+  "notes": [
+    "TẦNG QUỐC GIA — CHỈ ghi những gì KHÁC với tầng khu vực. Khóa không khai ở đây được kế thừa nguyên từ regions/."
+  ],
+  "fields_catalog": {
+    "cac_khoan_khau_tru": {
+      "check_aspect": "Khấu trừ từ lương theo pháp luật Hàn Quốc. TT 02/2024 Phụ lục IV: nếu NLĐ trả toàn bộ tiền ở và ăn thì ≤ 20% lương tháng; nếu được cung cấp bữa ăn miễn phí thì tiền ở ≤ 15% lương tháng. FAIL nếu vượt trần."
+    },
+    "tien_dich_vu_doi_tac_chi_tra": {
+      "check_aspect": "Tiền dịch vụ (phí phái cử) do bên Hàn Quốc chi trả. TT 02/2024 Phụ lục IV: bên tiếp nhận trả cho DN dịch vụ tối thiểu 01 tháng tiền lương cơ bản/hợp đồng/người. Kiểm tra đạt mức tối thiểu."
+    },
+    "chi_phi_bd_knn_nn_nld_nop": {
+      "check_aspect": "Chi phí đào tạo NLĐ nộp. Hàn Quốc thuyền viên E10 (TT 02/2024 Phụ lục IV): phí đào tạo tại Hàn Quốc sau nhập cảnh KHÔNG QUÁ 250 USD/thuyền viên. FAIL nếu vượt 250 USD."
+    },
+    "chi_phi_khac_nld_nop": {
+      "check_aspect": "Chi phí khác NLĐ nộp (Hàn Quốc E10). TT 02/2024 Phụ lục IV: phí quản lý thuyền viên ≤ 1.000 USD/thuyền viên/hợp đồng 3 năm (≤ 300 USD/gia hạn 1 năm 10 tháng). Luật 69/2020 Điều 7 cấm thu môi giới/khoản trá hình. FAIL nếu vượt trần hoặc không có căn cứ."
+    }
+  },
+  "version": "2026-07-21"
+}

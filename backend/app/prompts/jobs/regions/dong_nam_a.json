@@ -1,0 +1,16 @@
+{
+  "display_name": "Đông Nam Á",
+  "region_id": "dong_nam_a",
+  "notes": [
+    "TẦNG KHU VỰC — CHỈ khai phần KHÁC với nền chung `_base.json`."
+  ],
+  "fields_catalog": {
+    "ky_quy_vnd": {
+      "fill_hint": "Ghi 0"
+    },
+    "tien_lam_them_gio": {
+      "check_type": "deferred_foreign",
+      "fill_hint": "Ghi thỏa thuận về tiền làm thêm giờ như trong HĐCU/TYC (theo luật pháp nước tiếp nhận)"
+    }
+  }
+}

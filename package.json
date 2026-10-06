@@ -1,0 +1,15 @@
+{
+  "name": "datn6",
+  "private": true,
+  "scripts": {
+    "dev": "node frontend/node_modules/concurrently/dist/bin/concurrently.js --kill-others-on-fail -n BACKEND,FRONTEND -c blue,green \"cd backend && python -m app.serve\" \"cd frontend && npm run dev -- --open\"",
+    "admin": "node frontend/node_modules/concurrently/dist/bin/concurrently.js --kill-others-on-fail -n BACKEND,ADMIN -c blue,magenta \"cd backend && python -m app.serve\" \"cd frontend && npm run dev -- --port 5174 --open /quan-tri\"",
+    "check": "cd backend && python -m app.serve --check",
+    "smoke": "cd backend && python -m app.serve --smoke",
+    "stop": "cd backend && python -m app.serve --stop",
+    "seed": "cd backend && python -m app.domain.regulations",
+    "clear": "cd backend && python -c \"from app.store import cleanup_temp, cleanup_cache, clear_audit; print('temp:', cleanup_temp()); print('cache cleared:', cleanup_cache()); r=clear_audit(); print('lich su + thong ke:', r); print('=> trang Thong ke / Lich su / nhac han da ve 0' if r['stats_reset'] else '=> CHUA xoa duoc audit.jsonl (file dang bi giu?)')\"",
+    "test": "cd backend && python -m pytest tests && python -m ruff check --config tests/pyproject.toml app tests",
+    "test:cov": "cd backend && python -m pytest tests --cov=app --cov-report=term-missing:skip-covered --cov-fail-under=75"
+  }
+}

@@ -1,0 +1,343 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   BỘ QUY TẮC MÀU — bảng giá trị cho từng VAI TRÒ, chia theo giao diện sáng/tối.
+
+   Đây là nơi DUY NHẤT chứa mã màu của hệ thống. `src/colors.ts` chỉ ghép các
+   biến này thành lớp Tailwind (`bg-[var(--c-surface)]`) để dùng trong JSX; JSX
+   không viết mã màu, và không phải nhớ sắc độ nào đi với sắc độ nào.
+
+   Đổi bảng màu = sửa đúng khối này. Thêm một vai trò = thêm một biến ở CẢ HAI
+   khối `:root` và `.dark` — thiếu một bên là màu rơi về giá trị của bên kia.
+   =========================================================================== */
+:root {
+  /* nền · viền · chữ */
+  --c-surface: #ffffff;
+  --c-surface-subtle: #f8fafc;   /* slate-50  */
+  --c-border: #e2e8f0;           /* slate-200 */
+  --c-border-soft: #f1f5f9;      /* slate-100 */
+  --c-ink: #1e293b;              /* slate-800 */
+  --c-ink-muted: #64748b;        /* slate-500 */
+  --c-ink-faint: #94a3b8;        /* slate-400 */
+
+  /* màu nhấn + màu di chuột (nút, liên kết, mục đang mở) */
+  --c-accent: #2563eb;           /* XANH */
+  --c-accent-ink: #ffffff;
+  --c-hover-bg: #2563eb;
+  --c-hover-ink: #ffffff;
+  /* nút CHÍNH khi di chuột: nền bạc, chữ đen */
+  --c-accent-hover-bg: #c0c0c0;
+  --c-accent-hover-ink: #000000;
+
+  /* DÒNG BẢNG đang rê chuột (`row-hl`). Đậm hơn hẳn nền dòng chẵn (slate-50/40) để
+     thấy rõ đang trỏ vào dòng nào, nhưng vẫn nhạt hơn chữ nên không nuốt nội dung. */
+  --c-row-hover: #e2e8f0;
+
+  /* DẢI TIÊU ĐỀ NHÓM TRƯỜNG (trang 2 + trang 3) — MỘT màu XANH cho cả ba nhóm.
+     Trước đây mỗi nhóm một màu (xanh dương / xanh lá / hổ phách); ba màu bão hòa
+     cạnh nhau tranh nhau sự chú ý mà không nói thêm được gì (tên nhóm đã đủ định
+     danh). Đổi màu dải = sửa đúng biến này, áp cho cả hai trang. */
+  --c-group-bar: var(--c-accent);
+
+  /* Trạng thái kết luận (nền + chữ). KHÔNG có biến viền: `TONE_BORDER` trong
+     colors.ts đã bị gỡ vì không nơi nào dùng, nên 4 biến `--c-*-border` đi kèm cũng
+     là màu chết — giữ lại chỉ khiến người đọc tưởng có kiểu badge viền đang chạy. */
+  --c-ok-bg: #dcfce7;   --c-ok-ink: #166534;
+  --c-bad-bg: #fee2e2;  --c-bad-ink: #991b1b;
+  --c-warn-bg: #ffedd5; --c-warn-ink: #9a3412;
+  --c-info-bg: #e0e7ff; --c-info-ink: #3730a3;
+}
+
+.dark {
+  --c-surface: #131c2e;
+  --c-surface-subtle: #162034;
+  --c-border: #27344f;
+  --c-border-soft: #1f2b44;
+  /* CHỮ sáng hơn một nấc so với bản trước (#e2e8f0 / #96a4bd / #7f8ea9): trên nền
+     xanh đen, chữ phụ và chữ mờ trước đây tụt xuống dưới ngưỡng đọc thoải mái —
+     nhất là ở cỡ 12–13px vốn dùng dày đặc trong bảng trường. */
+  --c-ink: #f1f5f9;
+  --c-ink-muted: #b8c4d8;
+  --c-ink-faint: #93a3bd;
+
+  /* MÀU NHẤN: DÙNG CHUNG bảng màu của giao diện SÁNG.
+     Bản trước đổi hẳn sang ĐỎ ở chế độ tối với lý do "xanh bị chìm". Thực tế đỏ là
+     màu của LỖI trong chính hệ này (FAIL, ô trống, cảnh báo) — dùng nó làm màu nút
+     và màu di chuột khiến thao tác bình thường trông như cảnh báo, và người dùng
+     chuyển chế độ sáng/tối phải học lại nghĩa của màu. Một màu nhấn duy nhất cho cả
+     hai chế độ thì màu mới nói được đúng một điều. */
+  --c-accent: #2563eb;
+  --c-accent-ink: #ffffff;
+  --c-hover-bg: #2563eb;
+  --c-hover-ink: #ffffff;
+  --c-accent-hover-bg: #c0c0c0;
+  --c-accent-hover-ink: #000000;
+  /* Dòng đang rê chuột ở nền TỐI: sáng hơn nền thẻ đúng một nấc. Trước đây lớp
+     `hover:bg-slate-50` của Tailwind lọt qua bộ đảo màu và tô TRẮNG nguyên dòng. */
+  --c-row-hover: #1e2b45;
+  /* Sáng hơn accent một nấc cho đủ tương phản trên nền xanh đen (khớp `.bg-blue-600`). */
+  --c-group-bar: #2f6fe4;
+
+  --c-ok-bg: #1c452a;   --c-ok-ink: #a2ecc2;
+  --c-bad-bg: #4a2229;  --c-bad-ink: #ffc6c6;
+  --c-warn-bg: #4b301a; --c-warn-ink: #ffc79a;
+  --c-info-bg: #1d1f42; --c-info-ink: #a3a9ff;
+}
+
+@layer base {
+  body {
+    margin: 0;
+    color: #1e293b; /* slate-800 */
+    /* ROBOTO trước tiên: chữ Việt đủ dấu, nét đều ở cỡ nhỏ (bảng trường dùng dày
+       đặc 12–14px). Tải qua <link> ở index.html; không tải được thì rơi xuống
+       Inter -> font hệ thống, giao diện vẫn nguyên vẹn. */
+    font-family: "Roboto", "Inter", system-ui, "Segoe UI", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    /* NỀN TRANG — dải màu "sóng sánh": gradient nhiều điểm dừng, phóng to gấp 3
+       khung nhìn rồi cho trôi chậm. Mắt thấy nền dịu chuyển động nhẹ chứ không
+       nhấp nháy. `background-attachment: fixed` để nền không trượt theo cuộn. */
+    background: linear-gradient(125deg, #f5fffa 0%, #fffafa 28%, #f5fffa 52%, #fffafa 76%, #f5fffa 100%);
+    background-size: 300% 300%;
+    background-attachment: fixed;
+    animation: page-wave 24s ease-in-out infinite;
+    min-height: 100vh;
+  }
+  h2 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
+  h3 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; }
+}
+
+/* Ô XEM TRƯỚC văn bản OCR (trang 2): trồi lên nhẹ + mờ dần vào. Ngắn (140ms) và
+   chỉ đi MỘT chiều — ô này hiện/ẩn liên tục theo con trỏ, hiệu ứng dài hơn sẽ
+   thành nhấp nháy. */
+@keyframes peek-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes page-wave {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Tôn trọng người dùng đã tắt hiệu ứng chuyển động trong hệ điều hành. */
+@media (prefers-reduced-motion: reduce) {
+  body { animation: none; }
+}
+
+/* ===========================================================================
+   CỠ CHỮ CHUNG — phóng to một nấc cho dễ đọc.
+
+   Giao diện dùng nhiều cỡ chữ tùy ý (`text-[13px]`…) rải khắp các trang; chỉnh
+   từng chỗ vừa sót vừa khó giữ nhất quán. Ánh xạ lại tại đây là một chỗ duy nhất
+   quyết định thang cỡ chữ của cả hệ thống.
+   =========================================================================== */
+.text-xs { font-size: 13px; line-height: 1.45; }
+.text-sm { font-size: 15px; line-height: 1.5; }
+.text-base { font-size: 17px; line-height: 1.55; }
+.text-lg { font-size: 19px; line-height: 1.5; }
+.\[font-size\:11px\], .text-\[11px\] { font-size: 12.5px; }
+.text-\[12px\] { font-size: 13.5px; }
+.text-\[13px\] { font-size: 14.5px; }
+.text-\[13\.5px\] { font-size: 15px; }
+.text-\[14px\] { font-size: 15.5px; }
+.text-\[14\.5px\] { font-size: 16px; }
+.text-\[15px\] { font-size: 16.5px; }
+.text-\[16px\] { font-size: 17.5px; }
+
+/* ===========================================================================
+   CHẾ ĐỘ TỐI — bật bằng class `dark` trên <html> (xem src/theme.ts).
+
+   Cách làm: ÁNH XẠ LẠI đúng những lớp Tailwind mà giao diện đang dùng, khai một
+   lần tại đây. Lý do chọn cách này thay vì thêm biến thể `dark:` vào từng dòng
+   JSX: giao diện có ~3.000 dòng TSX dùng đi dùng lại vài chục lớp màu — nhân đôi
+   chúng vừa phình mã vừa chắc chắn sót chỗ, và mỗi trang mới lại phải nhớ làm
+   lại. Bảng dưới đây là NGUỒN SỰ THẬT DUY NHẤT của bảng màu tối.
+
+   Nguyên tắc chuyển màu:
+     · nền   : trắng / slate-50..200  ->  xám xanh đậm dần
+     · chữ   : slate-800..300         ->  đảo chiều, sáng dần
+     · viền  : slate-100..300         ->  xám đậm vừa đủ thấy
+     · nền trạng thái (red-50, green-50…) -> cùng sắc nhưng tối và bớt bão hòa,
+       chữ trên nền đó chuyển tông sáng để giữ độ tương phản đọc được.
+   =========================================================================== */
+.dark body {
+  color: #f1f5f9;
+  /* Nền tối cũng "sóng sánh": xanh đá tối (#2F4F4F) trôi trên nền đen. */
+  background: linear-gradient(125deg, #2f4f4f 0%, #000000 30%, #24403f 55%, #000000 80%, #2f4f4f 100%);
+  background-size: 300% 300%;
+  background-attachment: fixed;
+}
+
+/* ── Nền trung tính ── */
+.dark .bg-white { background-color: #131c2e; }
+.dark .bg-slate-50 { background-color: #162034; }
+.dark .bg-slate-100 { background-color: #1b2740; }
+.dark .bg-slate-200 { background-color: #24324f; }
+
+/* ── Chữ trung tính (đảo chiều thang độ) ──
+   Toàn thang được NÂNG một nấc so với bản trước. Ba bậc dưới cùng (slate-500/400/
+   300) là chỗ đau nhất: chúng dùng cho nhãn trường, chú thích và giá trị "(trống)"
+   — tức phần chữ NHỎ NHẤT và ĐÔNG NHẤT trên màn hình — mà lại là phần tối nhất.
+   Trên nền xanh đen, #96a4bd ở cỡ 12px đọc rất mỏi. */
+.dark .text-slate-900 { color: #ffffff; }
+.dark .text-slate-800 { color: #f1f5f9; }
+.dark .text-slate-700 { color: #e3e9f2; }
+.dark .text-slate-600 { color: #ccd6e5; }
+.dark .text-slate-500 { color: #b8c4d8; }
+.dark .text-slate-400 { color: #a1aec6; }
+.dark .text-slate-300 { color: #8d9bb4; }
+
+/* ── Viền ── */
+.dark .border-slate-100 { border-color: #1f2b44; }
+.dark .border-slate-200 { border-color: #27344f; }
+.dark .border-slate-300 { border-color: #33415e; }
+
+/* ── Nhấn xanh (nút chính, liên kết) ── */
+.dark .text-blue-600 { color: #7dabff; }
+.dark .text-blue-700 { color: #93bbff; }
+.dark .text-blue-800 { color: #a9caff; }
+.dark .bg-blue-50 { background-color: #14243f; }
+.dark .bg-blue-600 { background-color: #2f6fe4; }
+.dark .bg-blue-700 { background-color: #2a63cc; }
+.dark .border-blue-200 { border-color: #27436f; }
+.dark .border-blue-300 { border-color: #2f5187; }
+.dark .border-blue-400 { border-color: #3a63a5; }
+.dark .border-blue-500 { border-color: #3f6dba; }
+.dark .border-blue-600 { border-color: #2f6fe4; }
+.dark .border-blue-700 { border-color: #2a63cc; }
+
+/* ── Trạng thái: hợp lệ / không hợp lệ / cảnh báo ──
+   Các nền này đã được NÂNG SÁNG ~20% so với bản đầu: ở nền tối, nền trạng thái
+   quá trầm thì bảng trích xuất nhìn như một khối xám, không phân biệt được dòng
+   hợp lệ / trống / cảnh báo. Chữ đi kèm cũng sáng lên tương ứng để giữ tương phản. */
+.dark .bg-green-50 { background-color: #143427; }
+.dark .bg-green-100 { background-color: #1c452a; }
+.dark .text-green-700 { color: #86e3ae; }
+.dark .text-green-800 { color: #a2ecc2; }
+.dark .border-green-200 { border-color: #2a6144; }
+
+.dark .bg-red-50 { background-color: #3a1c22; }
+.dark .bg-red-100 { background-color: #4a2229; }
+.dark .text-red-600 { color: #ffa3a3; }
+.dark .text-red-700 { color: #ffb3b3; }
+.dark .text-red-800 { color: #ffc6c6; }
+.dark .border-red-200 { border-color: #6e333b; }
+.dark .border-red-300 { border-color: #883c46; }
+.dark .border-red-400 { border-color: #ab4954; }
+
+.dark .bg-amber-50 { background-color: #3a2d16; }
+.dark .bg-amber-100 { background-color: #49381b; }
+.dark .bg-amber-200 { background-color: #5f4820; }
+.dark .text-amber-600 { color: #f7cd7c; }
+.dark .text-amber-700 { color: #f9d68e; }
+.dark .text-amber-800 { color: #fbdfa4; }
+.dark .text-amber-900 { color: #fde8bd; }
+.dark .border-amber-200 { border-color: #6f5626; }
+.dark .border-amber-300 { border-color: #87682f; }
+
+.dark .bg-orange-50 { background-color: #3c2615; }
+.dark .bg-orange-100 { background-color: #4b301a; }
+.dark .text-orange-800 { color: #ffc79a; }
+.dark .text-orange-900 { color: #ffd7b4; }
+.dark .border-orange-300 { border-color: #8b562c; }
+
+/* THẺ CHI TIẾT ĐỐI CHIẾU — ở chế độ tối, nền hợp lệ/không hợp lệ đủ đậm nên chữ
+   phải là tông SÁNG (đảo ngược so với chế độ sáng) mới tương phản. */
+.dark .bg-red-100 .dark-ink-bad,
+.dark .dark-ink-bad { color: #ffd9d9; }
+.dark .bg-green-100 .dark-ink-good,
+.dark .dark-ink-good { color: #c6f6da; }
+.dark .bg-orange-100 { background-color: #5a3a1e; }
+.dark .border-orange-400 { border-color: #b0713a; }
+.dark .border-red-400 { border-color: #b45560; }
+.dark .border-green-400 { border-color: #3f8a63; }
+
+/* ===========================================================================
+   MÀU DI CHUỘT CHUNG CHO NÚT — MỘT quy tắc, MỘT màu cho cả hai chế độ:
+     nền XANH #2563eb, chữ trắng.
+   Áp cho nút có chữ (`btn-hl`), nút biểu tượng ở header (`icon-hl`) và nút Đăng
+   xuất ở sidebar quản trị (`admin-logout`). Khai ở đây vì màu phụ thuộc `.dark`,
+   không viết được bằng một chuỗi class Tailwind.
+   =========================================================================== */
+.btn-hl:hover:not(:disabled),
+.icon-hl:hover,
+.admin-logout:hover {
+  background-color: var(--c-hover-bg);
+  border-color: var(--c-hover-bg);
+  color: var(--c-hover-ink);
+}
+/* Icon bên trong nút phải đổi màu theo chữ (chúng dùng currentColor). */
+.btn-hl:hover:not(:disabled) svg,
+.icon-hl:hover svg,
+.admin-logout:hover svg { color: #ffffff; }
+
+/* ── NÚT CHÍNH (nền màu nhấn) ──
+   Nền XANH ở CẢ HAI chế độ; di chuột -> bạc #C0C0C0 chữ đen. */
+.btn-accent:hover:not(:disabled) {
+  background-color: var(--c-accent-hover-bg);
+  border-color: var(--c-accent-hover-bg);
+  color: var(--c-accent-hover-ink);
+}
+.btn-accent:hover:not(:disabled) svg { color: var(--c-accent-hover-ink); }
+
+/* Nút chính / mục đang mở ở chế độ TỐI: giữ nguyên XANH của giao diện sáng, chỉ
+   nâng độ sáng một nấc cho đủ tương phản trên nền xanh đen (khai ở khối
+   `.dark .bg-blue-600` phía trên). Không còn ánh xạ sang đỏ. */
+
+/* Ô CHỌN (select): viền theo MÀU NHẤN ở mọi trạng thái — trước đây ở nền tối viền
+   xám lẫn hẳn vào nền, nhìn không ra ô bấm được. */
+.dark select,
+.dark select:hover:not(:disabled),
+.dark select:focus { border-color: var(--c-hover-bg); }
+select:focus,
+.dark select:focus { box-shadow: 0 0 0 2px rgb(37 99 235 / 0.3); }
+select:hover:not(:disabled) { border-color: var(--c-hover-bg); }
+
+/* Thanh kéo (DPI): núm + vệt theo màu nhấn XANH của cả hai chế độ (chế độ tối chỉ
+   nâng độ sáng một nấc). Lúc ĐANG KÉO giảm SẮC ĐỘ 20% (--range-drag) làm phản hồi thị giác: hệ số viết một
+   lần, dùng chung cho cả hai chế độ, khỏi phải tính sẵn hai mã màu tối nghĩa. */
+input[type="range"] {
+  --range-h: 221;      /* #2563eb — xanh nhấn của giao diện sáng */
+  --range-s: 83%;
+  --range-l: 53%;
+  --range-drag: 1;     /* 1 = thường · 0.8 = đang kéo */
+  accent-color: hsl(var(--range-h) calc(var(--range-s) * var(--range-drag)) var(--range-l));
+}
+/* Chế độ tối dùng CÙNG màu nhấn, chỉ sáng hơn một nấc để nổi trên nền xanh đen. */
+.dark input[type="range"] { --range-l: 62%; }
+input[type="range"]:active { --range-drag: 0.8; }
+
+/* Thẻ bấm được (2 thẻ ở trang chủ quản trị): di chuột đổi màu viền cho biết bấm được. */
+.card-hl:hover { border-color: var(--c-hover-bg); }
+
+/* DÒNG BẢNG BẤM ĐƯỢC — một màu di chuột khai theo BIẾN, hợp lệ ở cả hai chế độ.
+   Không dùng `hover:bg-slate-*` của Tailwind cho việc này: biến thể `hover:` sinh ra
+   lớp riêng (`.hover\:bg-slate-50`) mà bộ đảo màu chế độ tối (`.dark .bg-slate-50`)
+   không với tới, nên nền tối bị tô trắng. */
+.row-hl:hover { background-color: var(--c-row-hover); }
+/* Vá cùng lỗ hổng đó cho các lớp `hover:` còn lại trong dự án. */
+.dark .hover\:bg-slate-50:hover { background-color: #1b2740; }
+.dark .hover\:bg-slate-100:hover { background-color: #223051; }
+
+/* KHUNG THÔNG BÁO đang mở -> viền theo màu nhấn (một màu cho cả hai chế độ). */
+.icon-hl.is-open { border-color: var(--c-hover-bg); box-shadow: 0 0 0 2px rgb(37 99 235 / 0.25); }
+
+/* Tô sáng dòng OCR khớp bằng chứng — nền vàng đủ sáng để thấy rõ vị trí. */
+.dark .bg-yellow-100 { background-color: #423717; }
+.dark .bg-yellow-200 { background-color: #60501a; }
+.dark .text-yellow-800 { color: #f6e195; }
+
+.dark .bg-indigo-100 { background-color: #1d1f42; }
+.dark .text-indigo-700 { color: #a3a9ff; }
+
+/* Ô nhập/chọn: trình duyệt tự vẽ nền trắng cho input/select/textarea. */
+.dark input,
+.dark select,
+.dark textarea,
+.dark option {
+  background-color: #131c2e;
+  color: #e2e8f0;
+}
+.dark ::placeholder { color: #7f8ea9; }
+.dark input[type="range"] { background-color: transparent; }
