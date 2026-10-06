@@ -27,7 +27,10 @@ _UNKNOWN_TIMEOUT = 120       # pid chưa từng có mốc nào sau ngần này g
 
 def _prune() -> None:
     now = time.time()
-    for k in [k for k, v in _PROGRESS.items() if now - v.get("ts", 0) > _TTL_SECONDS]:
+    # `list(...)` chụp nguyên khối dưới GIL. Duyệt thẳng `.items()` thì luồng OCR (chạy
+    # trong `asyncio.to_thread`) chèn mốc mới giữa chừng -> "dictionary changed size
+    # during iteration" -> cả lượt tải lên thành lỗi 500.
+    for k in [k for k, v in list(_PROGRESS.items()) if now - v.get("ts", 0) > _TTL_SECONDS]:
         _PROGRESS.pop(k, None)
 
 

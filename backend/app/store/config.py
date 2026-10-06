@@ -152,6 +152,18 @@ COUNTRIES_DIR = REGIONS_DIR / "countries"
 WORKS_DIR = COUNTRIES_DIR / "works"
 JOB_LAYER_DIRS = {"regions": REGIONS_DIR, "countries": COUNTRIES_DIR, "works": WORKS_DIR}
 
+# MÃ tầng / bộ trường đi thẳng từ form tải lên (`job_type`, `job_id`) vào tên tệp. Chỉ
+# nhận chữ/số/gạch dưới/gạch nối (kể cả chữ có dấu — `_safe_id` của cấu hình người
+# dùng giữ chúng). Không chặn thì `job_type="/tmp/x"` hay `"../../services/checks"`
+# mở được tệp `.json` bất kỳ trên đĩa làm bộ trường — vì `Path / "/tuyệt/đối"` bỏ
+# hẳn thư mục gốc, và trên Windows cả `\` lẫn `C:` cũng thoát ra ngoài.
+_LAYER_ID_RX = re.compile(r"\A[\w-]+\Z")
+
+
+def valid_layer_id(key: str) -> bool:
+    """`key` có phải một mã tầng/bộ trường dùng làm tên tệp được không."""
+    return bool(_LAYER_ID_RX.match(key or ""))
+
 # TẦNG NỀN, dưới cả tầng khu vực: danh mục 50 trường dùng chung cho MỌI khu vực.
 # Trước đó tám file khu vực chép trọn cùng một danh mục — 48/50 trường giống hệt nhau
 # tới từng ký tự. Hệ quả không phải là tốn chỗ mà là im lặng: sửa một nhãn phải sửa
@@ -208,7 +220,7 @@ def _layer(kind: str, key: str) -> dict[str, Any] | None:
     Ba tầng chồng lên nhau theo thứ tự khu vực -> quốc gia -> công việc; tầng sau ghi
     đè khóa trùng của tầng trước. Cả ba tầng đi qua CÙNG một đường nạp ở đây, nên
     cấu hình người dùng chồng lên tầng nào cũng có hiệu lực như nhau."""
-    if not key:
+    if not valid_layer_id(key):
         return None
     user = _applied_user_json("jobs", key)   # tầng MỚI do người dùng khai
     if user is not None:
@@ -238,6 +250,8 @@ def load_job_prompt(job_id: str) -> dict[str, Any]:
     quốc gia phải GHÉP tầng khu vực vào mới ra bộ trường đủ. Thứ tự tìm: cấu hình
     người dùng đang áp dụng -> quốc gia (ghép khu vực) -> khu vực -> công việc ->
     file phẳng jobs/<id>.json (bộ cũ, nếu còn)."""
+    if not valid_layer_id(job_id):
+        raise FileNotFoundError(f"Unknown job_id: {job_id!r}")
     user = _applied_user_json("jobs", job_id)
     if user is not None:
         return _with_base(user)

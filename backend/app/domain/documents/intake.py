@@ -90,7 +90,12 @@ def resolve_selection(
             sel.job_type_name = job_type_other.strip()
         elif job_type:
             jt = next((t for t in mkt.get("job_types", []) if t.get("id") == job_type), None)
-            sel.job_type_name = jt["name"] if jt else job_type
+            # Mã lạ bị TỪ CHỐI như quốc gia lạ ở trên: trước đây nó lọt qua làm tên hiển
+            # thị và làm mã tầng công việc, tức là chuỗi tùy ý từ form đi vào tên tệp.
+            if jt is None:
+                raise SelectionError(
+                    f"Loại hình lao động không thuộc thị trường đã chọn: {job_type}")
+            sel.job_type_name = jt["name"]
 
     sel.job_id = sel.job_id or DEFAULT_JOB_ID
     sel.region, sel.region_name = _region_of(market, country)
