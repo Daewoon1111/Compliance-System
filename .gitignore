@@ -33,3 +33,7 @@ backend/app/data/user_config/
 # ===== OS / editor =====
 .DS_Store
 .vscode/
+
+backend/app/rules
+package-lock.json
+package.json
