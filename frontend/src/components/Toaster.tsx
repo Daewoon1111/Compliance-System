@@ -53,7 +53,7 @@ export function Toaster() {
         <div
           key={n.id}
           className={
-            "flex items-start gap-2 rounded-lg border border-slate-200 border-l-4 bg-white p-3 shadow-lg " +
+            "flex items-start gap-2 rounded-lg border border-slate-200 border-l-4 bg-surface p-3 shadow-lg " +
             BORDER[n.kind]
           }
         >

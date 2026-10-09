@@ -1,11 +1,11 @@
 """TẦNG API (admin) — TRANG QUẢN TRỊ (cần mã quản trị): sửa cấu hình MẶC ĐỊNH của hệ thống.
 
-Cho sửa: bộ trường công việc (jobs), danh mục thị trường (markets.json) và văn bản
-luật (rules) — sửa luật tự re-seed ChromaDB. Kèm endpoint KIỂM TRA DATABASE (kho
-quy định ChromaDB + dữ liệu phiên) để quản trị viên biết hệ đang ở trạng thái nào.
+Cho sửa và tạo mới: bộ trường mặc định (field_sets) và văn bản quy định (rules) — lưu
+văn bản quy định thì tự nạp lại ChromaDB. Kèm endpoint KIỂM TRA DATABASE (kho quy
+định ChromaDB + dữ liệu phiên) để quản trị viên biết hệ đang ở trạng thái nào.
 
 Cấu hình DỊCH VỤ (extraction/validation/checks) vẫn chỉ sửa trực tiếp trên file.
-Cấu hình RIÊNG của người dùng nằm ở router `config.py` (không cần mã quản trị).
+Bộ trường của người dùng nằm ở router `config.py` (không cần mã quản trị).
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, Depends, Header, HTTPException
 
 from app.core import settings
-from app.store import applied_config_ids, technical_metrics, user_config_list
+from app.store import list_field_sets, technical_metrics
 
 
 def _require_admin(
@@ -45,27 +45,22 @@ router = APIRouter(
 require_admin = _require_admin
 
 APP_DIR = Path(__file__).resolve().parent.parent
-# Bộ trường chia 3 TẦNG: khu vực -> quốc gia -> công việc (xem store.resolve_job_prompt).
-_JOBS = APP_DIR / "prompts" / "jobs"
 _ADMIN_DIRS = {
-    "regions": _JOBS / "regions",
-    "countries": _JOBS / "regions" / "countries",
-    "works": _JOBS / "regions" / "countries" / "works",
-    "markets": _JOBS,
+    "field_sets": APP_DIR / "prompts" / "field_sets",
     "rules": APP_DIR / "rules",
 }
-# Nhóm chỉ cho sửa ĐÚNG một file (markets.json nằm chung thư mục jobs với các tầng
-# bộ trường) -> khai riêng để không mở nhầm quyền ghi cả thư mục.
-_ADMIN_ONLY_FILES = {"markets": {"markets.json"}}
+# Đuôi file được phép theo nhóm: bộ trường là JSON; thư mục quy định có văn bản .md và
+# đúng một tệp JSON là đăng bạ corpus.json.
+_ALLOWED_SUFFIX = {"field_sets": (".json",), "rules": (".md", ".json")}
 
 
 def _admin_display(grp: str, p) -> str:
     """Tên hiển thị TIẾNG VIỆT CÓ DẤU cho từng file cấu hình."""
     try:
-        if grp in ("regions", "countries", "works"):
+        if grp == "field_sets":
             return json.loads(p.read_text(encoding="utf-8")).get("display_name", p.stem)
-        if grp == "markets":
-            return "Danh mục khu vực / thị trường / loại hình lao động"
+        if grp == "rules" and p.suffix == ".json":
+            return "Đăng bạ kho quy định"
         if grp == "rules":
             for line in p.read_text(encoding="utf-8").splitlines():
                 s = line.strip()
@@ -81,11 +76,10 @@ def _admin_list() -> list[dict]:
     for grp, base in _ADMIN_DIRS.items():
         if not base.exists():
             continue
-        only = _ADMIN_ONLY_FILES.get(grp)
         for p in sorted(base.iterdir()):
-            if not p.is_file() or p.suffix not in (".json", ".md"):
+            if not p.is_file() or p.suffix not in _ALLOWED_SUFFIX[grp]:
                 continue
-            if only is not None and p.name not in only:
+            if grp == "rules" and p.suffix == ".json" and p.name != "corpus.json":
                 continue
             out.append({
                 "group": grp,
@@ -103,20 +97,19 @@ def _admin_resolve(rel: str):
         raise HTTPException(status_code=400, detail="Đường dẫn không hợp lệ")
     grp, name = rel.split("/", 1)
     base = _ADMIN_DIRS.get(grp)
-    if base is None or "/" in name or "\\" in name or ".." in name:
+    if base is None or not name or "/" in name or "\\" in name or ".." in name:
         raise HTTPException(status_code=400, detail="Đường dẫn không hợp lệ")
-    only = _ADMIN_ONLY_FILES.get(grp)
-    if only is not None and name not in only:
-        raise HTTPException(status_code=400, detail="Không được phép sửa file này")
     p = (base / name).resolve()
-    if base.resolve() not in p.parents or p.suffix not in (".json", ".md"):
+    if base.resolve() not in p.parents or p.suffix not in _ALLOWED_SUFFIX[grp]:
+        raise HTTPException(status_code=400, detail="Không được phép sửa file này")
+    if grp == "rules" and p.suffix == ".json" and p.name != "corpus.json":
         raise HTTPException(status_code=400, detail="Không được phép sửa file này")
     return p
 
 
 @router.get("/files")
 def admin_files():
-    """Cây file cấu hình + văn bản luật sửa được trên trang quản trị."""
+    """Cây file cấu hình + văn bản quy định sửa được trên trang quản trị."""
     return {"files": _admin_list()}
 
 
@@ -133,7 +126,7 @@ def admin_metrics(days: int = 30):
 
 @router.get("/corpus")
 def admin_corpus():
-    """QUẢN TRỊ KHO LUẬT: từng văn bản kèm nguồn · phiên bản · hiệu lực · hàm băm · người duyệt.
+    """QUẢN TRỊ KHO QUY ĐỊNH: từng văn bản kèm nguồn · phiên bản · hiệu lực · hàm băm · người duyệt.
 
     Đối chiếu đăng bạ `rules/corpus.json` với file thật trên đĩa. Trả kèm VÂN TAY của
     cả kho — chính con số nằm trong chữ ký yêu cầu kiểm tra, nên đổi kho là mọi báo cáo
@@ -146,7 +139,7 @@ def admin_corpus():
 
 @router.post("/corpus/approve")
 def admin_corpus_approve(body: dict = Body(...)):
-    """PHÊ DUYỆT một văn bản luật: chốt hàm băm hiện tại + ghi người duyệt và thời điểm.
+    """PHÊ DUYỆT một văn bản quy định: chốt hàm băm hiện tại + ghi người duyệt và thời điểm.
 
     Người duyệt phải khai tên — phê duyệt vô danh thì cột 'người phê duyệt' chỉ là
     trang trí, không truy được trách nhiệm."""
@@ -182,7 +175,7 @@ def admin_db():
     Mỗi mục trả `ok` riêng để một thành phần hỏng không làm mất thông tin của phần còn lại."""
     out: dict = {}
 
-    # 1) Kho quy định ChromaDB — số đoạn luật đã nạp, theo từng văn bản nguồn.
+    # 1) Kho quy định ChromaDB — số đoạn quy định đã nạp, theo từng văn bản nguồn.
     try:
         from app.domain.regulations import get_collection  # noqa: PLC0415
 
@@ -197,7 +190,7 @@ def admin_db():
         out["chroma"] = {
             "ok": True, "chunks": total,
             "by_source": [{"source_doc": k, "chunks": v} for k, v in sorted(by_doc.items())],
-            "warning": "" if total else "Kho quy định TRỐNG — chạy `npm run seed` hoặc lưu lại một văn bản luật để nạp.",
+            "warning": "" if total else "Kho quy định TRỐNG — thêm văn bản quy định (.md) rồi chạy `npm run seed` hoặc lưu văn bản trên trang này.",
         }
     except Exception as exc:  # noqa: BLE001
         out["chroma"] = {"ok": False, "chunks": 0, "by_source": [], "error": str(exc)}
@@ -217,7 +210,7 @@ def admin_db():
     except Exception as exc:  # noqa: BLE001
         out["sessions"] = {"ok": False, "error": str(exc)}
 
-    # 3) Đăng bạ kho luật — trạng thái phê duyệt + hàm băm của từng văn bản.
+    # 3) Đăng bạ kho quy định — trạng thái phê duyệt + hàm băm của từng văn bản.
     try:
         from app.domain.regulations import corpus  # noqa: PLC0415
 
@@ -228,21 +221,20 @@ def admin_db():
     except Exception as exc:  # noqa: BLE001
         out["corpus"] = {"ok": False, "error": str(exc)}
 
-    # 4) File cấu hình mặc định + cấu hình người dùng đang áp dụng.
+    # 4) File cấu hình mặc định + bộ trường hiện có.
     files = _admin_list()
     out["configs"] = {
         "ok": True,
         "by_group": {g: sum(1 for f in files if f["group"] == g) for g in _ADMIN_DIRS},
-        "user_configs": user_config_list(),
-        "applied": applied_config_ids(),
+        "field_sets": list_field_sets(),
     }
     return out
 
 
 @router.get("/file")
 def admin_read(rel: str):
-    """Nội dung thô một file cấu hình/luật. `rel` đi qua `_admin_resolve` để chặn
-    đường dẫn vượt thư mục (`../`) và mọi đuôi ngoài .json/.md."""
+    """Nội dung thô một file cấu hình/quy định. `rel` đi qua `_admin_resolve` để chặn
+    đường dẫn vượt thư mục (`../`) và mọi đuôi không được phép."""
     p = _admin_resolve(rel)
     if not p.exists():
         raise HTTPException(status_code=404, detail="Không tìm thấy file")
@@ -251,40 +243,45 @@ def admin_read(rel: str):
 
 @router.put("/file")
 def admin_write(body: dict = Body(...)):
-    """Ghi đè một file cấu hình/luật.
+    """Ghi (tạo mới hoặc ghi đè) một file cấu hình/quy định.
 
-    Hai lớp chặn trước khi ghi: `_admin_resolve` (đường dẫn hợp lệ) và với .json là
-    phải PARSE ĐƯỢC — file cấu hình hỏng cú pháp sẽ làm chết pipeline ở tận lượt chạy
-    sau, rất xa chỗ gây ra.
+    Chặn trước khi ghi: `_admin_resolve` (đường dẫn hợp lệ), .json phải PARSE ĐƯỢC, và
+    bộ trường phải HỢP LỆ — file hỏng sẽ làm chết pipeline ở tận lượt chạy sau.
 
-    File .md trong `rules/` VÀ đăng bạ `rules/corpus.json` thì SEED LẠI ChromaDB ngay:
-    sửa luật (hoặc sửa ngày hiệu lực trong đăng bạ) mà quên seed thì hệ vẫn đối chiếu
+    File .md trong `rules/` VÀ đăng bạ `rules/corpus.json` thì NẠP LẠI ChromaDB ngay:
+    sửa văn bản (hoặc ngày hiệu lực trong đăng bạ) mà quên nạp thì hệ vẫn đối chiếu
     theo bản cũ, và không có dấu hiệu nào cho thấy điều đó."""
     rel = str(body.get("rel", ""))
     content = str(body.get("content", ""))
     p = _admin_resolve(rel)
     if p.suffix == ".json":  # bắt buộc JSON hợp lệ mới cho ghi
         try:
-            json.loads(content)
+            data = json.loads(content)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"JSON không hợp lệ: {exc}") from exc
+        if rel.startswith("field_sets/"):
+            from app.store import field_set_problems  # noqa: PLC0415
+
+            if problems := field_set_problems(data):
+                raise HTTPException(status_code=400, detail=" ".join(problems))
+    if not content.strip() and p.suffix == ".md":
+        raise HTTPException(status_code=400, detail="Văn bản quy định đang trống.")
+    p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
 
     note = "Đã lưu."
     reseeded = False
-    # Sửa file LUẬT (.md) HOẶC ĐĂNG BẠ (rules/corpus.json) -> tự động NẠP LẠI ChromaDB
-    # ngay trên web (khỏi vào terminal).
-    #
-    # Đăng bạ phải nằm trong danh sách này: `effective_from`, `effective_to`, `doc_type`
-    # của mỗi văn bản được gắn vào metadata TỪNG ĐOẠN LÚC NẠP, và chính chúng là thứ bộ
-    # lọc ngày ký so sánh. Sửa ngày hiệu lực mà không nạp lại thì kho vẫn lọc theo mốc
-    # cũ — hồ sơ được đối chiếu với đúng cái phiên bản luật vừa bị sửa đi.
+    # Sửa VĂN BẢN QUY ĐỊNH (.md) HOẶC ĐĂNG BẠ -> tự động NẠP LẠI ChromaDB. Đăng bạ phải
+    # nằm trong danh sách này: hiệu lực và loại văn bản được gắn vào metadata TỪNG ĐOẠN
+    # LÚC NẠP, và chính chúng là thứ bộ lọc ngày ký so sánh.
     _is_rule_md = rel.startswith("rules/") and p.suffix == ".md"
     _is_registry = rel.replace("\\", "/") == "rules/corpus.json"
     if _is_rule_md or _is_registry:
         try:
+            from app.domain.documents.spelling import reset_lexicon  # noqa: PLC0415
             from app.domain.regulations import seed  # noqa: PLC0415
-            seed()  # reset + nạp lại toàn bộ luật (idempotent)
+            seed()  # reset + nạp lại toàn bộ quy định (idempotent)
+            reset_lexicon()   # từ điển khôi phục dấu dựng từ chính kho quy định
             reseeded = True
             note = "Đã lưu lại thay đổi."
         except Exception as exc:  # noqa: BLE001

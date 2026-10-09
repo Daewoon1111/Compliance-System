@@ -90,9 +90,8 @@ def _take_short_quote(s: str, limit_words: int = 25) -> str:
     return " ".join(words[:limit_words]).strip()
 
 
-# MỆNH ĐỀ DẪN CHIẾU tài liệu khác ("theo phụ lục 05 của hợp đồng cung ứng số ... ký
-# ngày ...") — luôn là phần ĐUÔI nói về văn bản nguồn, không thuộc giá trị của bất kỳ
-# trường mô tả nào. Nạp từ `extraction.json > reference_clause_stops` (khớp trên bản
+# MỆNH ĐỀ DẪN CHIẾU tài liệu khác ("theo phụ lục 05 của hợp đồng số ... ký ngày ...") —
+# luôn là phần ĐUÔI nói về văn bản nguồn, không thuộc giá trị của bất kỳ trường mô tả nào. Nạp từ `extraction.json > reference_clause_stops` (khớp trên bản
 # BỎ DẤU nên viết không dấu); thiếu cấu hình -> không cắt gì.
 @lru_cache(maxsize=4)
 def _compile_alternation(pats: tuple[str, ...]) -> re.Pattern[str] | None:
@@ -111,9 +110,8 @@ def _cut_reference_clause(val: str) -> str:
     """Bỏ mệnh đề dẫn chiếu ở đuôi giá trị. Chỉ cắt khi PHÍA TRƯỚC còn nội dung —
     giá trị mở đầu bằng chính mệnh đề dẫn chiếu thì để nguyên cho bộ lọc rác xử lý.
 
-    Phần còn lại QUÁ NGẮN cũng bị bỏ hẳn: 'cụ thể trong Thư yêu cầu tuyển dụng…' cắt
-    ra mẩu 'cụ thể' — vẫn 'có chữ' nên bộ lọc rác cho qua, rồi hiện lên bảng thành
-    giá trị của Thời hạn hợp đồng / Địa điểm làm việc."""
+    Phần còn lại QUÁ NGẮN cũng bị bỏ hẳn: 'cụ thể trong phụ lục…' cắt ra mẩu 'cụ thể' —
+    vẫn 'có chữ' nên bộ lọc rác cho qua rồi hiện lên bảng như một giá trị."""
     rx = _reference_clause_regex()
     if not rx or not val:
         return val
@@ -132,7 +130,7 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.;!?])\s+")
 def _condense_clause(value: str, keywords: list[str] | None, max_len: int) -> str:
     """Đoạn DÀI HƠN `max_len` -> giữ trọn những CÂU có từ khóa của trường.
 
-    Cắt cứng ở ký tự thứ N làm giá trị đứt giữa từ ("…người lao động được hưởng ch"):
+    Cắt cứng ở ký tự thứ N làm giá trị đứt giữa từ ("…bên B được hưởng ch"):
     người duyệt đọc xong vẫn không biết điều khoản nói gì, mà phần bị mất lại thường
     là phần mang nội dung. Giữ NGUYÊN VĂN từng câu thì đoạn ngắn lại nhưng vẫn đọc
     được, và câu chứa từ khóa của chính trường được ưu tiên giữ.
@@ -156,8 +154,8 @@ def _condense_clause(value: str, keywords: list[str] | None, max_len: int) -> st
     return text.strip(_EDGE_PUNCT)
 
 
-# Câu DẪN CHIẾU CHUNG: "Theo quy định của pháp luật Nhật Bản", "Thực hiện theo luật
-# hiện hành". Đúng hình thức nhưng không nói gì về nội dung điều khoản.
+# Câu DẪN CHIẾU CHUNG: "Theo quy định của pháp luật", "Thực hiện theo luật hiện
+# hành". Đúng hình thức nhưng không nói gì về nội dung điều khoản.
 _BOILERPLATE_CLAUSE = re.compile(
     r"^(thuc hien\s+|ap dung\s+|tuan thu\s+)?theo\s+"
     r"(dung\s+|cac\s+|nhung\s+)*(quy dinh|quy che|luat|phap luat|bo luat|"
@@ -182,12 +180,10 @@ def is_boilerplate_clause(value: str) -> bool:
 # So khớp bỏ dấu, neo đầu chuỗi. Bắt được -> coi như TRỐNG.
 _TEMPLATE_HINT_PAT = re.compile(
     r"^dien\b"                                  # "Điền 0", "Điền theo thực tế đăng ký"
-    r"|^ghi\b(?!\s*chu)"                        # "Ghi theo thực tế", "Ghi 'Trên các tàu ...'",
-                                                # "Ghi số tiền lương theo tháng" — TRỪ "Ghi chú..."
+    r"|^ghi\b(?!\s*chu)"                        # "Ghi theo thực tế", "Ghi số tiền..." — TRỪ "Ghi chú..."
     r"|^liet\s*ke\b"                            # "Liệt kê từng nội dung chi phí và số tiền"
     r"|^neu\s*ro\b|^ke\s*khai\b"                # "Nêu rõ...", "Kê khai..."
     r"|^neu\s*co\s*thi\b"                       # "Nếu có thì điền số cụ thể, chọn Loại tiền"
-    r"|^ngay\s*dn\b"                            # "Ngày DN và Bên tiếp nhận ... ký ..." (chữ cột mẫu)
     r"|^chon\s*loai\b"                          # "chọn Loại tiền"
     r"|^(theo\s*)?thuc\s*te(\s*dang\s*ky)?$"    # "theo thực tế (đăng ký)"
     r"|^\(?neu\s*co\)?$",                       # "(nếu có)"
@@ -218,7 +214,7 @@ def clean_value(value: Any) -> Any:
     `_find_labeled_text`) để giá trị do LLM sinh đi qua cùng một bộ lọc; LLM chép
     nguyên câu hợp đồng nên dính đuôi dẫn chiếu y hệt đường regex.
 
-    Vd: ',' -> None; ', tiền công của người lao động' -> 'tiền công của người lao động'.
+    Vd: ',' -> None; ', nội dung điều khoản' -> 'nội dung điều khoản'.
     KHÔNG đụng vào ngày 'YYYY-MM-DD' (dấu '-' nằm giữa, không ở đầu/cuối) hay dict tiền."""
     if not isinstance(value, str):
         return value

@@ -1,17 +1,9 @@
-"""NGHIỆP VỤ ĐỌC HỒ SƠ (spelling) — sửa chính tả tiếng Việt cho giá trị trích xuất, KHÔNG dùng LLM.
+"""NGHIỆP VỤ ĐỌC HỒ SƠ (spelling) — khôi phục dấu tiếng Việt cho giá trị trích xuất, KHÔNG dùng mô hình.
 
-Hai lớp, chạy theo thứ tự:
-
-  C2 — `restore_diacritics`: khôi phục DẤU + ký tự bị OCR làm rụng ('lao dng' ->
-       'lao động'). Từ điển dựng từ CHÍNH corpus của dự án (văn bản luật trong
-       app/rules + nhãn/gợi ý trong prompts) nên luôn đúng ngữ cảnh nghiệp vụ.
-       Chỉ thay khi ứng viên là DUY NHẤT hoặc áp đảo -> không đoán bừa.
-
-  C1 — `apply_phrase_bank`: NGÂN HÀNG CỤM ĐÁP ÁN. Mỗi trường có sẵn vài cụm chuẩn
-       (từ `fill_hint` trong fields_catalog + prompts/services/phrase_bank.json).
-       Sau OCR, so khớp mờ giữa văn bản và các cụm chuẩn: khớp đủ cao thì điền BẢN
-       CHUẨN (đúng chính tả), bằng chứng vẫn giữ nguyên văn OCR. Không bịa: chỉ chọn
-       trong danh mục có sẵn VÀ bắt buộc có đoạn OCR tương đồng.
+`restore_diacritics`: khôi phục DẤU + ký tự bị OCR làm rụng ('hp đng' -> 'hợp đồng').
+Từ điển dựng từ CHÍNH vốn chữ của hệ thống — văn bản quy định trong `app/rules` và các
+chuỗi có dấu của bộ trường — nên luôn đúng ngữ cảnh của loại hồ sơ đang dùng. Chỉ thay
+khi ứng viên là DUY NHẤT hoặc áp đảo -> không đoán bừa.
 """
 from __future__ import annotations
 
@@ -23,8 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.domain.documents.ocr import fold_diacritics
-from app.domain.documents.rules import is_template_hint
-from app.store import APP_DIR, PROMPTS_DIR, SERVICES_DIR
+from app.store import APP_DIR, PROMPTS_DIR, USER_FIELD_SETS_DIR
 
 _WORD = re.compile(r"[0-9A-Za-zÀ-ỹà-ỹĐđ]+", re.UNICODE)
 
@@ -78,8 +69,8 @@ def _json_strings(path: Path) -> list[str]:
 
 
 def _corpus_texts() -> list[str]:
-    """Nguồn từ vựng: văn bản luật (app/rules/*.md) + các chuỗi CÓ DẤU trong
-    prompts (nhãn trường, fill_hint, check_aspect). Đúng vốn từ của hồ sơ."""
+    """Nguồn từ vựng: văn bản quy định (app/rules/*.md) + các chuỗi CÓ DẤU trong bộ
+    trường (nhãn, gợi ý, tiêu chí) và prompt dịch vụ."""
     out: list[str] = []
     rules_dir = APP_DIR / "rules"
     if rules_dir.is_dir():
@@ -88,14 +79,16 @@ def _corpus_texts() -> list[str]:
                 out.append(f.read_text(encoding="utf-8"))
             except OSError:
                 continue
-    # jobs/ nay LỒNG 3 tầng (regions/countries/works) -> phải quét đệ quy, nếu không
-    # từ điển khôi phục dấu mất sạch vốn từ của các bộ trường.
-    for folder, pattern in ((PROMPTS_DIR / "jobs", "**/*.json"), (SERVICES_DIR, "*.json")):
-        if not Path(folder).is_dir():
-            continue
-        for f in sorted(Path(folder).glob(pattern)):
-            out.extend(_json_strings(f))
+    for folder in (PROMPTS_DIR / "field_sets", USER_FIELD_SETS_DIR, PROMPTS_DIR / "services"):
+        if Path(folder).is_dir():
+            for f in sorted(Path(folder).glob("*.json")):
+                out.extend(_json_strings(f))
     return out
+
+
+def reset_lexicon() -> None:
+    """Dựng lại từ điển ở lần dùng sau — gọi sau khi kho quy định hoặc bộ trường đổi."""
+    _lexicon.cache_clear()
 
 
 # Ứng viên phải áp đảo ứng viên kế tiếp ngần này lần mới được nhận (chống đoán bừa).
@@ -132,7 +125,7 @@ def _lexicon() -> tuple[dict[str, str], dict[str, str], dict[str, str], frozense
                 prev = None
                 continue
             # VIẾT TẮT PHÁP LÝ ngắn ('NĐ-CP', 'TT', 'QH') hạ chữ thường trùng với chữ
-            # hỏng của bản scan: 'CP' của 'Nghị định 112/2021/NĐ-CP' biến 'cp' thành
+            # hỏng của bản scan: 'CP' của số hiệu nghị định biến 'cp' thành
             # một TỪ CÓ THẬT, nên 'cung cp' không còn được sửa thành 'cung cấp'.
             # Viết tắt không phải vốn từ để khôi phục dấu -> loại khỏi mọi bảng tra.
             if w.isupper() and len(w) <= 4:
@@ -194,7 +187,7 @@ def restore_diacritics(text: str) -> str:
 
     Thứ tự thử, dừng ở bước đầu tiên có căn cứ:
       0. Từ ĐÃ ĐÚNG (có trong corpus, kể cả từ không dấu) -> giữ nguyên.
-      1. Khớp CHÍNH XÁC bản bỏ dấu: 'lao dong' -> 'lao động'.
+      1. Khớp CHÍNH XÁC bản bỏ dấu: 'hop dong' -> 'hợp đồng'.
       2. Khớp KHUNG PHỤ ÂM 2 TỪ với từ ĐỨNG TRƯỚC: 's dng' -> 'sử dụng'.
       3. Khớp KHUNG PHỤ ÂM 2 TỪ với từ ĐỨNG SAU: 'k năng' -> 'kỹ năng'.
       4. Khớp khung phụ âm 1 từ (từ >= 3 ký tự) nếu ứng viên áp đảo.
@@ -223,6 +216,11 @@ def restore_diacritics(text: str) -> str:
         if any(ch.isdigit() for ch in w) or not w or wl in known:
             continue
         f = _fold(wl)
+        if f != wl:
+            # Từ ĐÃ CÓ DẤU thì để yên: OCR đọc ra dấu tức là chữ còn rõ. Tra từ điển
+            # cho nó chỉ đổi một từ đúng nhưng hiếm trong kho ('Hà Nội') thành một từ
+            # khác cùng khung chữ ('Hạ Nội').
+            continue
         if not f.isalpha():
             continue
         # TỪ MỘT KÝ TỰ ('k' của 'kỹ', 'd' của 'để', 'th' của 'thủ tục') là kiểu hỏng
@@ -251,9 +249,9 @@ def restore_diacritics(text: str) -> str:
             repl = _fuzzy_word(f, fold_map)
         if repl and repl != wl:
             out[i] = _match_case(w, repl)
-    # LƯỢT 2 — soát theo CẶP TỪ: cặp nào KHÔNG có thật trong corpus ('bộ hiểm',
-    # 'dục tham') mà khung phụ âm lại trỏ tới một cặp có thật ('bảo hiểm', 'được
-    # tham') thì sửa theo cặp. Cặp đã hợp lệ được để yên.
+    # LƯỢT 2 — soát theo CẶP TỪ: cặp nào KHÔNG có thật trong corpus ('dục tham') mà
+    # khung phụ âm lại trỏ tới một cặp có thật ('được tham') thì sửa theo cặp. Cặp đã
+    # hợp lệ, hoặc cả hai từ đều đã có dấu, được để yên.
     for i in range(1, len(out)):
         a, b = out[i - 1].lower(), out[i].lower()
         if len(a) < 2 or len(b) < 2 or any(ch.isdigit() for ch in a + b):
@@ -261,6 +259,8 @@ def restore_diacritics(text: str) -> str:
         fa, fb = _fold(a), _fold(b)
         if fa + " " + fb in bi_fold:
             continue                       # cặp có thật -> không đụng
+        if fa != a and fb != b:
+            continue                       # cả hai từ đã có dấu -> không đoán lại
         # Dùng CHÍNH bộ tra của lượt 1 (`_bigram` đã kiểm 'bản sửa chứa bản OCR').
         pair = _bigram(_fold(words[i - 1]), _fold(words[i]))
         if not pair:
@@ -282,180 +282,14 @@ def restore_diacritics(text: str) -> str:
     return "".join(parts)
 
 
-# ---------------------------------------------------------------------------
-# C1 — Ngân hàng cụm đáp án
-# ---------------------------------------------------------------------------
-# Cụm chuẩn dài hơn ngần này mới đáng đem đi so khớp mờ.
-_PHRASE_MIN = 6
-# Ngưỡng khớp: chuẩn hóa giá trị đã có (dễ hơn) và điền trường trống (chặt hơn).
-_CANON_MIN = 0.72
-_FILL_MIN = 0.80
-# Ngưỡng cho lối đo ĐỘ PHỦ khi chuẩn hóa. Cao hơn `_CANON_MIN` vì độ phủ chỉ hỏi
-# "cụm chuẩn có nằm trong đoạn OCR không" — nó bỏ qua phần thừa của đoạn, nên dễ
-# đạt hơn tỉ lệ giống hai chiều và phải bù lại bằng ngưỡng chặt hơn.
-_CANON_COVER_MIN = 0.85
-
-
-@lru_cache(maxsize=1)
-def _phrase_bank_cfg() -> dict[str, Any]:
-    path = SERVICES_DIR / "phrase_bank.json"
-    if not path.exists():
-        return {}
-    import json
-
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 - cấu hình hỏng không được chặn pipeline
-        print(f"[spelling] {path.name} hỏng ({exc}) -> KHÔNG dùng ngân hàng cụm đáp án.")
-        return {}
-
-
-@lru_cache(maxsize=16)
-def phrases_for_job(job_id: str, job_type_id: str = "") -> dict[str, tuple[str, ...]]:
-    """field_key -> các CỤM CHUẨN, CHỈ lấy từ phrase_bank.json (by_field + by_job).
-
-    KHÔNG dùng `fill_hint` của fields_catalog làm cụm chuẩn nữa: fill_hint là câu
-    HƯỚNG DẪN NHẬP LIỆU ('Ghi theo thực tế', 'Điền 0', 'Liệt kê từng nội dung chi phí
-    và số tiền'), không phải nội dung hợp đồng. Dùng nó làm đáp án khiến trường trống
-    bị điền chính câu hướng dẫn -> người dùng thấy 'mẫu' thay vì giá trị thật."""
-    cfg = _phrase_bank_cfg()
-    by_field: dict[str, list[str]] = {
-        k: list(v) for k, v in (cfg.get("by_field") or {}).items() if isinstance(v, list)
-    }
-    # by_job tra theo CẢ mã thị trường lẫn mã LOẠI HÌNH LAO ĐỘNG: cụm chuẩn hàng
-    # hải nay gắn với loại hình "công việc trên biển", không còn gắn với một
-    # thị trường riêng.
-    for key in (job_id, job_type_id):
-        for k, v in ((cfg.get("by_job") or {}).get(key) or {}).items():
-            if isinstance(v, list):
-                by_field.setdefault(k, []).extend(v)
-    return {
-        k: tuple(p for p in dict.fromkeys(v) if len(p) >= _PHRASE_MIN and not is_template_hint(p))
-        for k, v in by_field.items() if v
-    }
-
-
-_NEGATION = re.compile(r"\b(khong|chua|mien|cam|ngoai tru|tru)\b")
-_ACTOR = re.compile(r"nguoi su dung lao dong|nguoi lao dong|ben tiep nhan|doanh nghiep|chu tau|"
-                    r"dai ly|doi tac|ben a|ben b")
-
-
-_ACTOR_ALIASES = ((re.compile(r"\b(nsdld|chu su dung)\b"), "nguoi su dung lao dong"),
-                  (re.compile(r"\b(tts|thuc tap sinh|nld|ld)\b"), "nguoi lao dong"))
-
-
-def _actor_aliases(folded: str) -> str:
-    for rx, canon in _ACTOR_ALIASES:
-        folded = rx.sub(canon, folded)
-    return folded
-
-
-def same_meaning_markers(a: str, b: str) -> bool:
-    """Hai cụm có cùng DẤU HIỆU NGHĨA: phủ định, THỨ TỰ chủ thể, và các con số.
-
-    Độ giống ký tự không phân biệt được "Có khoản khấu trừ" với "Không có khoản khấu
-    trừ", hay "lượt đi do người lao động trả, lượt về do người sử dụng lao động trả"
-    với bản đảo hai bên — thay bằng cụm chuẩn khi đó là ĐẢO NGHĨA hồ sơ."""
-    fa, fb = _actor_aliases(_fold(a)), _actor_aliases(_fold(b))
-    return (sorted(_NEGATION.findall(fa)) == sorted(_NEGATION.findall(fb))
-            and _ACTOR.findall(fa) == _ACTOR.findall(fb)
-            and re.findall(r"\d+", fa) == re.findall(r"\d+", fb))
-
-
-def best_phrase(value: str, candidates: tuple[str, ...]) -> tuple[str | None, float]:
-    """Cụm chuẩn giống giá trị OCR nhất (so trên bản bỏ dấu) + điểm giống.
-
-    Hai lối đo, lấy lối nào có lợi hơn cho cụm đó:
-      · TỈ LỆ GIỐNG hai chiều — dùng khi đoạn OCR và cụm chuẩn dài xấp xỉ nhau.
-      · ĐỘ PHỦ — cụm chuẩn có bao nhiêu phần nằm trong đoạn OCR. Cần lối này vì OCR
-        hỏng nặng thường KÉO DÀI đoạn văn bằng rác ('...chi trả đi vi tt c các giải
-        đoạn ca chương trình...'); phần rác đó kéo tỉ lệ giống hai chiều xuống dưới
-        ngưỡng dù cả cụm chuẩn vẫn nằm nguyên trong đoạn. Bù lại, độ phủ phải vượt
-        ngưỡng CHẶT HƠN (`_CANON_COVER_MIN`) mới được nhận.
-    """
-    v = _fold(value)
-    if len(v) < _PHRASE_MIN or not candidates:
-        return None, 0.0
-    best, score = None, 0.0
-    for cand in candidates:
-        cf = _fold(cand)
-        r = _ratio(v, cf)
-        cov = _coverage(cf, v)
-        if cov >= _CANON_COVER_MIN:
-            r = max(r, cov)
-        if r > score:
-            best, score = cand, r
-    return best, score
-
-
-def _coverage(cand_folded: str, window_folded: str) -> float:
-    """Tỉ lệ cụm chuẩn được ĐOẠN VĂN phủ (tổng các khối khớp / độ dài cụm) — đo
-    'cụm này có nằm trong đoạn văn không' tốt hơn ratio thuần khi đoạn văn dài hơn."""
-    if not cand_folded:
-        return 0.0
-    m = difflib.SequenceMatcher(None, cand_folded, window_folded, autojunk=False)
-    return sum(b.size for b in m.get_matching_blocks()) / len(cand_folded)
-
-
-def _match_score(cand_folded: str, window_folded: str) -> float:
-    """Điểm khớp của một cặp (cụm chuẩn, đoạn văn) = max(tỉ lệ giống, độ phủ × 0,95).
-
-    Dùng MỘT `SequenceMatcher` cho cả hai phép đo: `ratio()` và `get_matching_blocks()`
-    đọc cùng một kết quả đã nhớ đệm bên trong, nên tính chung rẻ bằng một nửa tính rời."""
-    m = difflib.SequenceMatcher(None, cand_folded, window_folded, autojunk=False)
-    cov = sum(b.size for b in m.get_matching_blocks()) / len(cand_folded)
-    return max(m.ratio(), cov * 0.95)
-
-
-def _trigrams(s: str) -> frozenset[str]:
-    """Tập bộ-ba ký tự liên tiếp — dấu vân tay rẻ để loại sớm cặp không thể khớp."""
-    return frozenset(s[i:i + 3] for i in range(len(s) - 2))
-
-
-# Cụm chuẩn nằm trong đoạn văn thì phần lớn bộ-ba ký tự của nó cũng phải có mặt ở đó.
-# Ngưỡng để RỘNG (0,5) so với ngưỡng khớp thật (0,80): chỉ để loại các cặp lệch hẳn.
-_TRIGRAM_PREFILTER = 0.5
-
-
-def _score_upper_bound(len_cand: int, len_win: int) -> float:
-    """Trần trên của `_match_score` suy từ ĐỘ DÀI hai chuỗi — lọc trước khi so khớp thật.
-
-    Khối khớp không thể dài hơn chuỗi ngắn hơn, nên cả tỉ lệ giống lẫn độ phủ đều bị
-    chặn trên bởi độ dài. Cặp không thể đạt ngưỡng thì bỏ qua ngay, không phải chạy
-    thuật toán so khớp (chi phí O(n·m)) — một tài liệu có hàng trăm đoạn văn nhân với
-    hàng chục cụm chuẩn, phần lớn lệch hẳn độ dài."""
-    if not len_cand or not len_win:
-        return 0.0
-    short = min(len_cand, len_win)
-    return max(2 * short / (len_cand + len_win), 0.95 * short / len_cand)
-
-
-def _windows(text: str, size: int) -> list[str]:
-    """Các cửa sổ 1..size dòng liên tiếp — dùng dò cụm chuẩn trong toàn văn bản."""
-    lines = [ln.strip() for ln in (text or "").split("\n") if ln.strip()]
-    out: list[str] = []
-    for i in range(len(lines)):
-        for n in range(1, size + 1):
-            if i + n <= len(lines):
-                out.append(" ".join(lines[i:i + n]))
-    return out
-
-
-def canonicalize_fields(contract_json: dict[str, Any], job_id: str,
-                        job_type_id: str = "") -> dict[str, Any]:
-    """Chạy cả 2 lớp cho MỘT contract_json (gọi sau bước trích xuất bằng luật):
-
-      C2 khôi phục dấu cho giá trị VĂN BẢN (giữ nguyên bằng chứng OCR gốc), rồi
-      C1 chuẩn hóa/điền theo ngân hàng cụm đáp án.
-    """
-    ef = contract_json.get("extracted_fields", {}) or {}
-    for fld in ef.values():
+def restore_field_spelling(contract_json: dict[str, Any]) -> dict[str, Any]:
+    """Khôi phục dấu cho mọi giá trị VĂN BẢN của một contract_json (gọi sau bước trích
+    xuất bằng luật). Bằng chứng giữ nguyên văn OCR gốc để người duyệt đối chiếu."""
+    for fld in (contract_json.get("extracted_fields", {}) or {}).values():
         if not isinstance(fld, dict):
             continue
         val = fld.get("value")
-        # GHI CHÚ của giá trị TIỀN ('Phí trả cho đại lý làm visa') cũng là chữ OCR và
-        # cũng hiện thẳng lên bảng -> phải qua cùng lớp khôi phục dấu, nếu không riêng
-        # phần chú thích còn nguyên chữ rụng dấu bên cạnh con số đã đẹp.
+        # GHI CHÚ của giá trị TIỀN cũng là chữ OCR và cũng hiện thẳng lên bảng.
         if isinstance(val, dict) and isinstance(val.get("note"), str):
             val["note"] = restore_diacritics(val["note"])
         if not isinstance(val, str) or len(val) < 4:
@@ -463,74 +297,6 @@ def canonicalize_fields(contract_json: dict[str, Any], job_id: str,
         fixed = restore_diacritics(val)
         if fixed != val:
             ev = fld.setdefault("evidence", {})
-            ev["short_quote"] = ev.get("short_quote") or val   # bằng chứng giữ bản OCR
+            ev["short_quote"] = ev.get("short_quote") or val
             fld["value"] = fixed
-    return apply_phrase_bank(contract_json, job_id, job_type_id)
-
-
-def apply_phrase_bank(contract_json: dict[str, Any], job_id: str,
-                      job_type_id: str = "") -> dict[str, Any]:
-    """Chuẩn hóa/điền giá trị trường bằng ngân hàng cụm đáp án.
-
-      - Trường ĐÃ CÓ giá trị văn bản: khớp mờ ≥ 0.72 -> thay bằng bản chuẩn đúng
-        chính tả (evidence giữ nguyên đoạn OCR gốc).
-      - Trường TRỐNG: dò cụm chuẩn trong văn bản OCR (cửa sổ tới 3 dòng); khớp
-        ≥ 0.80 -> điền bản chuẩn, evidence là đoạn OCR khớp.
-    """
-    bank = phrases_for_job(job_id, job_type_id)
-    if not bank:
-        return contract_json
-    ef = contract_json.get("extracted_fields", {}) or {}
-    missing = set(contract_json.get("missing_fields", []) or [])
-    text = (contract_json.get("raw", {}) or {}).get("normalized_text", "") or ""
-    wins: list[tuple[str, str, frozenset[str]]] | None = None
-
-    for key, cands in bank.items():
-        fld = ef.get(key)
-        if not isinstance(fld, dict):
-            continue
-        val = fld.get("value")
-        if isinstance(val, str) and is_template_hint(val):
-            # Giá trị đang là câu HƯỚNG DẪN của biểu mẫu -> xóa, coi như trống.
-            fld["value"] = None
-            missing.add(key)
-            val = None
-        if isinstance(val, str) and val.strip():
-            cand, score = best_phrase(val, cands)
-            # So sánh NGUYÊN VĂN, KHÔNG so bản bỏ dấu. So bản bỏ dấu thì giá trị chỉ
-            # khác cụm chuẩn ở CHỖ THIẾU DẤU ("ve sinh lao dong") bị coi là "đã giống
-            # rồi" và không được nắn — đúng loại hỏng mà ngân hàng cụm sinh ra để sửa.
-            if cand and score >= _CANON_MIN and cand != val and same_meaning_markers(cand, val):
-                fld["value"] = cand
-                fld["confidence"] = max(float(fld.get("confidence") or 0.0), 0.66)
-                ev = fld.setdefault("evidence", {})
-                ev["short_quote"] = ev.get("short_quote") or val
-                ev["source"] = "PHRASE_BANK"
-            continue
-        if val is not None or not text:
-            continue
-        if wins is None:
-            wins = [(w, wf := _fold(w), _trigrams(wf)) for w in _windows(text, 3)]
-        best_cand, best_score, best_win = None, 0.0, ""
-        for cand in cands:
-            cf = _fold(cand)
-            if len(cf) < _PHRASE_MIN:
-                continue
-            ct = _trigrams(cf)
-            for w, wf, wt in wins:
-                if _score_upper_bound(len(cf), len(wf)) <= best_score:
-                    continue        # không thể hơn điểm đang giữ -> khỏi so khớp thật
-                if ct and len(ct & wt) / len(ct) < _TRIGRAM_PREFILTER:
-                    continue        # khác nhau quá nhiều -> không thể đạt ngưỡng điền
-                r = _match_score(cf, wf)
-                if r > best_score:
-                    best_cand, best_score, best_win = cand, r, w
-        if best_cand and best_score >= _FILL_MIN and same_meaning_markers(best_cand, best_win):
-            fld["value"] = best_cand
-            fld["confidence"] = 0.6
-            fld["evidence"] = {"short_quote": best_win[:200], "source": "PHRASE_BANK"}
-            missing.discard(key)
-
-    contract_json["extracted_fields"] = ef
-    contract_json["missing_fields"] = [k for k in ef if k in missing]
     return contract_json

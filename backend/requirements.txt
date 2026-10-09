@@ -49,6 +49,13 @@ numpy==1.26.4
 # và đường xử lý ảnh ở đây nhận file do người dùng tải lên.
 Pillow>=10.3,<12
 
+# --- Cửa sổ phần mềm (bản ứng dụng: desktop/launcher.py) ---
+# pywebview mở giao diện trong cửa sổ Windows thật dùng Microsoft Edge WebView2 (có sẵn
+# trên Windows 10/11 đã cập nhật) — không phải trình duyệt. Trên Windows kéo theo
+# pythonnet (cần .NET Framework 4.x, có sẵn). Thiếu gói này launcher tự rơi về cửa sổ
+# Edge/Chrome --app nên backend chạy độc lập (`npm run dev`) không phụ thuộc nó.
+pywebview==5.4
+
 # --- Xuất báo cáo PDF ---
 fpdf2==2.8.1
 

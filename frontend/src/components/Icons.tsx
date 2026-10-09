@@ -285,3 +285,106 @@ export function Logo({ className = "h-8 w-8" }: IconProps) {
     </svg>
   );
 }
+
+/* ---------------------------------------------------------------------------
+   Biểu tượng NÉT (stroke) bổ sung cho bộ giao diện mới — vẽ tay theo lưới 24×24, nét
+   1.8px, đầu tròn: cùng độ dày thị giác với Boxicons regular ở trên.
+   --------------------------------------------------------------------------- */
+function Ln({ className = BASE, children }: IconProps & { children: React.ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8}
+      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {children}
+    </svg>
+  );
+}
+
+/** Dấu cộng — thêm dòng / thêm tài liệu. */
+export function IconPlus({ className }: IconProps) {
+  return <Ln className={className}><path d="M12 5v14M5 12h14" /></Ln>;
+}
+
+/** Kính lúp — ô tìm kiếm. */
+export function IconSearch({ className }: IconProps) {
+  return <Ln className={className}><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4.2-4.2" /></Ln>;
+}
+
+/** Thùng rác — xóa dòng. */
+export function IconTrash({ className }: IconProps) {
+  return <Ln className={className}><path d="M4 7h16M9 7V4.5h6V7M18 7l-.8 12.2a1.9 1.9 0 0 1-1.9 1.8H8.7a1.9 1.9 0 0 1-1.9-1.8L6 7M10 11v6M14 11v6" /></Ln>;
+}
+
+/** Màn hình máy tính — "xử lý ngay trên máy này". */
+export function IconDesktop({ className }: IconProps) {
+  return <Ln className={className}><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></Ln>;
+}
+
+/** Bóng đèn — ô "Mẹo". */
+export function IconBulb({ className }: IconProps) {
+  return <Ln className={className}><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3z" /></Ln>;
+}
+
+/** Bánh răng — nút "Cài đặt". */
+export function IconSettings({ className }: IconProps) {
+  return (
+    <Ln className={className}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+    </Ln>
+  );
+}
+
+/** Gạch ngang — nút THU NHỎ (việc vẫn chạy ngầm). */
+export function IconMinus({ className }: IconProps) {
+  return <Ln className={className}><path d="M6 17h12" /></Ln>;
+}
+
+/** Dấu hỏi trong vòng tròn — nút "Hướng dẫn sử dụng". */
+export function IconHelp({ className }: IconProps) {
+  return <Ln className={className}><circle cx="12" cy="12" r="9" /><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.8M12 17.2v.1" /></Ln>;
+}
+
+/** Ngôi sao lấp lánh — "Mô tả bằng lời", hệ thống tự tạo danh sách. */
+export function IconSparkle({ className }: IconProps) {
+  return <Ln className={className}><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></Ln>;
+}
+
+/** Mũi tên sang phải — nút "Tiếp theo", "Bắt đầu". */
+export function IconArrowRight({ className }: IconProps) {
+  return <Ln className={className}><path d="M5 12h14M13 6l6 6-6 6" /></Ln>;
+}
+
+/** Mũi tên sang trái — nút "Quay lại". */
+export function IconArrowLeft({ className }: IconProps) {
+  return <Ln className={className}><path d="M19 12H5M11 6l-6 6 6 6" /></Ln>;
+}
+
+/** Chồng tài liệu — bộ kiểm tra (nhiều thông tin cần kiểm). */
+export function IconStack({ className }: IconProps) {
+  return <Ln className={className}><path d="m12 3 9 4.5-9 4.5-9-4.5L12 3z" /><path d="m3 12 9 4.5 9-4.5M3 16.5 12 21l9-4.5" /></Ln>;
+}
+
+/** Cán cân — bộ quy định (văn bản pháp lý làm căn cứ). */
+export function IconScale({ className }: IconProps) {
+  return <Ln className={className}><path d="M12 3v18M7 21h10M5 7h14M5 7l-3 6a3 3 0 0 0 6 0L5 7zM19 7l-3 6a3 3 0 0 0 6 0l-3-6z" /></Ln>;
+}
+
+/** Thanh trượt điều chỉnh — cài đặt trích xuất. */
+export function IconSliders({ className }: IconProps) {
+  return <Ln className={className}><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" /><circle cx="16" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></Ln>;
+}
+
+/** Khung cắt — chọn vùng cần kiểm tra trên trang. */
+export function IconCrop({ className }: IconProps) {
+  return <Ln className={className}><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14" /></Ln>;
+}
+
+/** Ô LOGO trên nền gradient xanh (sidebar, trang tổng quan). Phần màu nhấn của logo
+ *  đổi sang xanh nhạt để còn thấy trên nền xanh (xem `.brand-mark` trong index.css). */
+export function BrandMark({ className = "h-10 w-10" }: IconProps) {
+  return (
+    <span className={"brand-mark grid shrink-0 place-items-center rounded-[11px] " + className}>
+      <Logo className="h-[58%] w-[58%] text-white" />
+    </span>
+  );
+}

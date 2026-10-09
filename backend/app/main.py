@@ -1,11 +1,12 @@
 """KHỞI ĐỘNG (main) — dựng FastAPI app: CORS + include routers.
 
-  - routers/meta.py      health, markets, classify-files, chỉnh DPI OCR
+  - routers/meta.py      health, danh sách bộ trường, chỉnh DPI OCR
   - routers/sessions.py  upload -> OCR -> trích xuất -> kiểm tra -> báo cáo
   - routers/export.py    xuất báo cáo PDF
-  - routers/config.py    CẤU HÌNH NGƯỜI DÙNG (không cần mã): bộ trường + thị trường
+  - routers/config.py    BỘ TRƯỜNG của người dùng (không cần mã quản trị)
   - routers/admin.py     QUẢN TRỊ (cần mã): sửa cấu hình mặc định + kiểm tra database
   - routers/stats.py     thống kê + nhật ký kiểm tra
+  - routers/desktop.py   BẢN ỨNG DỤNG: phục vụ giao diện đã build + nhịp sống cửa sổ
 
 Logic domain theo nghiệp vụ ở app/domain/ (documents / regulations / compliance).
 """
@@ -14,6 +15,8 @@ from app.core import setup_runtime
 # UTF-8 console + tắt telemetry ChromaDB (gọi sớm, trước các import nặng)
 setup_runtime()
 
+import json  # noqa: E402
+import re  # noqa: E402
 import threading  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 
@@ -23,14 +26,26 @@ from fastapi.responses import JSONResponse  # noqa: E402
 from starlette.middleware.trustedhost import TrustedHostMiddleware  # noqa: E402
 
 from app.core import check_production_config, ensure_admin_token, settings  # noqa: E402
-from app.routers import admin, config, export, meta, sessions, stats  # noqa: E402
+from app.routers import admin, app_settings, config, desktop, export, meta, sessions, stats  # noqa: E402
 from app.store import InvalidSessionId  # noqa: E402
 
 # TRẦN THÂN REQUEST, chặn TRƯỚC khi Starlette parse multipart: parser ghi mọi phần tệp
 # xuống đĩa tạm rồi router mới đếm dung lượng — body vài GB vẫn kịp làm đầy ổ đĩa.
-_UPLOAD_PATH = "/api/v1/sessions"
-_MAX_UPLOAD_BODY = 150 * 1024 * 1024 + 2 * 1024 * 1024     # 150 MB tệp + phần form
-_MAX_OTHER_BODY = 4 * 1024 * 1024                          # JSON cấu hình / văn bản luật
+#
+# Trần TÍNH THEO TUYẾN, và mỗi tuyến tải tệp phải có mặt ở đây với đúng trần router của
+# nó cho phép: bản cũ chỉ miễn `/api/v1/sessions`, nên tuyến nạp BỘ QUY ĐỊNH (router cho
+# tới 200 MB) bị chặn ở 4 MB — tệp PDF 12 MB nhận 413 trước khi tới được router.
+_FORM_SLACK = 2 * 1024 * 1024                              # phần form + ranh giới multipart
+_UPLOAD_MB = {                                             # trần TỆP (MB) của từng tuyến tải lên
+    "/api/v1/sessions": 150,                               # PDF hồ sơ
+    "/api/v1/config/regulation-sets": 200,                 # văn bản quy định (.pdf/.docx/.zip…)
+}
+_MAX_OTHER_BODY = 4 * 1024 * 1024                          # JSON cấu hình / văn bản quy định
+
+
+def body_limit_of(path: str) -> int:
+    mb = _UPLOAD_MB.get(path.rstrip("/") or "/")
+    return mb * 1048576 + _FORM_SLACK if mb else _MAX_OTHER_BODY
 
 
 class BodySizeLimit:
@@ -42,14 +57,14 @@ class BodySizeLimit:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope.get("method") in ("GET", "HEAD", "OPTIONS"):
             return await self.app(scope, receive, send)
-        limit = _MAX_UPLOAD_BODY if scope.get("path") == _UPLOAD_PATH else _MAX_OTHER_BODY
+        limit = body_limit_of(scope.get("path") or "")
         headers = dict(scope.get("headers") or [])
         try:
             declared = int(headers.get(b"content-length", b"0") or 0)
         except ValueError:
             declared = 0
         if declared > limit:
-            return await _too_large(send)
+            return await _too_large(send, limit)
         seen = 0
 
         async def _receive():
@@ -64,18 +79,67 @@ class BodySizeLimit:
         try:
             await self.app(scope, _receive, send)
         except _BodyTooLarge:
-            await _too_large(send)
+            await _too_large(send, limit)
 
 
 class _BodyTooLarge(Exception):
     pass
 
 
-async def _too_large(send) -> None:
+async def _too_large(send, limit: int) -> None:
+    mb = (limit - _FORM_SLACK if limit != _MAX_OTHER_BODY else limit) // 1048576
+    detail = json.dumps({"detail": f"Dung lượng gửi lên vượt giới hạn ({mb} MB)."},
+                        ensure_ascii=False)
     await send({"type": "http.response.start", "status": 413,
-                "headers": [(b"content-type", b"application/json")]})
-    await send({"type": "http.response.body",
-                "body": '{"detail":"Dung lượng gửi lên vượt giới hạn."}'.encode()})
+                "headers": [(b"content-type", b"application/json; charset=utf-8")]})
+    await send({"type": "http.response.body", "body": detail.encode()})
+
+
+# CHỐNG CSRF. CORS chỉ chặn TRANG LẠ ĐỌC phản hồi, không chặn request được GỬI đi: một
+# POST multipart/form-data là "simple request", trình duyệt gửi thẳng không cần preflight.
+# Không có lớp này thì bất kỳ trang web nào người dùng mở cũng âm thầm nạp được văn bản
+# vào kho quy định (đầu độc căn cứ kiểm tra) hoặc đẩy hồ sơ vào hàng OCR, vì API chạy
+# trên máy người dùng và các tuyến này không cần mã quản trị.
+# Trình duyệt luôn gửi `Origin` với POST/PUT/PATCH/DELETE khác origin; công cụ dòng lệnh
+# (curl, script, test) không gửi -> vẫn dùng được như cũ.
+_UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class OriginGuard:
+    """ASGI middleware: 403 khi request ghi mang `Origin` không được phép."""
+
+    def __init__(self, app, allowed: list[str], pattern: str | None):
+        self.app = app
+        self.allow_all = "*" in allowed
+        self.allowed = {o.rstrip("/").lower() for o in allowed}
+        self.pattern = re.compile(pattern) if pattern else None
+
+    def _ok(self, origin: str, host: str, scheme: str) -> bool:
+        if self.allow_all:
+            return True
+        o = origin.rstrip("/").lower()
+        if o == "null":           # iframe sandbox / file:// — không bao giờ là giao diện thật
+            return False
+        if o in self.allowed or (self.pattern and self.pattern.match(o)):
+            return True
+        return bool(host) and o == f"{scheme}://{host}".lower()    # cùng origin (bản ứng dụng)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("method") not in _UNSAFE_METHODS:
+            return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers") or [])
+        origin = headers.get(b"origin", b"").decode("latin-1").strip()
+        site = headers.get(b"sec-fetch-site", b"").decode("latin-1").strip().lower()
+        host = headers.get(b"host", b"").decode("latin-1").strip()
+        blocked = (origin and not self._ok(origin, host, scope.get("scheme") or "http")) or (
+            not origin and site == "cross-site")
+        if not blocked:
+            return await self.app(scope, receive, send)
+        body = json.dumps({"detail": "Yêu cầu bị từ chối: gửi từ trang web không được phép."},
+                          ensure_ascii=False).encode()
+        await send({"type": "http.response.start", "status": 403,
+                    "headers": [(b"content-type", b"application/json; charset=utf-8")]})
+        await send({"type": "http.response.body", "body": body})
 
 
 @asynccontextmanager
@@ -93,8 +157,10 @@ async def lifespan(_app: FastAPI):
     check_production_config()
 
     from app.routers.meta import apply_dpi  # noqa: PLC0415
+    from app.store.app_settings import apply_all, saved_dpi  # noqa: PLC0415
 
-    apply_dpi(int(settings.ocr_dpi))
+    apply_all()                                   # LLM + OCR người dùng đã chọn ở trang Cài đặt
+    apply_dpi(saved_dpi() or int(settings.ocr_dpi))
 
     from app.domain.documents.ocr import warmup_ocr  # noqa: PLC0415 - import nặng
 
@@ -118,6 +184,8 @@ if "*" in _origins:
 # Thứ tự: middleware thêm SAU nằm NGOÀI. CORS ngoài cùng để cả phản hồi 400/413 của hai
 # lớp trong vẫn mang header CORS (trình duyệt đọc được thông báo lỗi).
 app.add_middleware(BodySizeLimit)
+app.add_middleware(OriginGuard, allowed=_origins,
+                   pattern=None if "*" in _origins else _LOOPBACK_ORIGIN)
 # HOST HEADER: chống DNS rebinding — tên miền của kẻ tấn công trỏ về 127.0.0.1 sẽ vượt
 # được CORS vì trình duyệt coi đó là cùng origin. Chỉ nhận tên máy đã khai.
 app.add_middleware(
@@ -140,5 +208,8 @@ async def _bad_session_id(_request: Request, exc: InvalidSessionId):
     return JSONResponse(status_code=404, content={"detail": str(exc)})
 
 
-for _router in (meta, sessions, export, config, admin, stats):
+for _router in (meta, sessions, export, config, admin, stats, desktop, app_settings):
     app.include_router(_router.router)
+
+# Giao diện đã build — gắn CUỐI CÙNG: tuyến bắt-tất-cả chỉ nhận đường dẫn không khớp API.
+desktop.mount_frontend(app, settings.frontend_dist)

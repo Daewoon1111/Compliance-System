@@ -8,10 +8,11 @@
  * Hai job: UPLOAD (OCR + trích xuất, pid tự sinh) và VALIDATE (đối chiếu quy định,
  * pid = session_id) — cùng cơ chế subscribe/emit dùng với useSyncExternalStore.
  */
-import { createSession, friendly, validateSession, watchProgress } from "./api/client";
+import { useSyncExternalStore } from "react";
+import { addRegulationSet, createSession, friendly, validateSession, watchProgress } from "./api/client";
 import { translate } from "./i18n";
 import { notify } from "./notify";
-import type { ValidateResponse } from "./types";
+import type { FileRegion, RegulationUploadResult, ValidateResponse } from "./types";
 
 function makeStore<T>(initial: T) {
   let state = initial;
@@ -40,9 +41,10 @@ export type UploadJob = {
   // TRỰC TIẾP khi render — trang không cần mirror sang state (tránh setState trong effect).
   error: string;
   sessionId: string;  // != "" khi xong -> trang Tải lên nav sang /review/<id>
+  startedAt: number;  // Date.now() lúc bắt đầu — bảng Thông báo hiện thời gian đã chạy
 };
 
-const upload = makeStore<UploadJob>({ active: false, text: "", eta: "", error: "", sessionId: "" });
+const upload = makeStore<UploadJob>({ active: false, text: "", eta: "", error: "", sessionId: "", startedAt: 0 });
 
 export const getUploadJob = upload.get;
 export const subscribeUploadJob = upload.subscribe;
@@ -54,15 +56,13 @@ export function clearUploadResult() {
 
 export function startUploadJob(
   files: File[],
-  form: {
-    market: string; country: string; job_type: string;
-    market_other: string; job_type_other: string;
-  },
+  fieldSet: string,
+  regions?: (FileRegion | null)[] | null,
 ): void {
   if (upload.get().active) return; // chống bấm đúp
   const pid = crypto.randomUUID();
   const started = Date.now();
-  upload.emit({ active: true, text: "", eta: "", error: "", sessionId: "" });
+  upload.emit({ active: true, text: "", eta: "", error: "", sessionId: "", startedAt: started });
 
   const stop = watchProgress(
     pid,
@@ -88,7 +88,7 @@ export function startUploadJob(
     },
   );
 
-  createSession(files, form, pid)
+  createSession(files, fieldSet, pid, regions)
     .then((data) => {
       // Báo HOÀN TẤT ngay tại KHO (không phải trong trang): người dùng đang ở bất kỳ
       // trang nào cũng nhận được, và bấm vào thông báo là tới thẳng bước kiểm tra.
@@ -163,4 +163,109 @@ export function startValidateJob(
       stop();
       validate.emit({ active: false, text: "" });
     });
+}
+
+// ── NẠP BỘ QUY ĐỊNH (chuyển văn bản + đọc ảnh + lập chỉ mục) ───────────────
+// Sống ở cấp module như hai việc trên: đóng hộp thoại "Thêm bộ quy định" giữa chừng thì
+// việc vẫn chạy ngầm, tiến độ hiện ở bảng Thông báo, xong thì báo kèm liên kết.
+export type RegsetJob = {
+  active: boolean;
+  name: string;                         // tên bộ quy định đang nạp
+  files: string[];                      // tên tệp đang nạp (hiện trong hộp thoại khi mở lại)
+  text: string;                         // dòng tiến độ ("Đang đọc ảnh trang 12/199…")
+  pct: number | null;                   // 0..100 khi biết tổng; null = chưa biết (thanh chạy)
+  eta: string;                          // "còn khoảng 2 giờ 10 phút" (khâu đọc ảnh) — "" khi chưa đo được
+  error: string;
+  result: RegulationUploadResult | null;
+  startedAt: number;
+};
+
+const regset = makeStore<RegsetJob>({
+  active: false, name: "", files: [], text: "", pct: null, eta: "", error: "", result: null, startedAt: 0,
+});
+
+export const getRegsetJob = regset.get;
+export const subscribeRegsetJob = regset.subscribe;
+
+/** Xóa kết quả/lỗi đã hiện (mở lại hộp thoại để nạp bộ khác). */
+export function clearRegsetResult() {
+  if (!regset.get().active) regset.emit({ error: "", result: null, files: [], name: "" });
+}
+
+/** Phần trăm của CẢ LƯỢT từ một mốc tiến độ: mỗi tệp chiếm một phần bằng nhau; trong một
+ *  tệp, đọc ảnh chiếm 85% (phần chậm nhất), lập chỉ mục 15%. null = chưa đo được. */
+function regsetPct(d: { phase?: string; file?: number; files?: number; done?: number; total?: number }): number | null {
+  if (!d.total) return null;
+  const files = d.files || 1;
+  const frac = (d.done || 0) / d.total;
+  const within = d.phase === "index" ? 0.85 + 0.15 * frac : d.phase === "ocr" ? 0.85 * frac : 0;
+  return Math.min(99, Math.round((100 * ((d.file || 1) - 1 + within)) / files));
+}
+
+/** "2 giờ 10 phút" / "4 phút" / "dưới 1 phút". */
+function durationText(sec: number): string {
+  const m = Math.round(sec / 60);
+  if (m < 1) return translate("eta.lt1");
+  const h = Math.floor(m / 60);
+  return h ? `${h} ${translate("eta.h")} ${m % 60} ${translate("toast.etaMin")}` : `${m} ${translate("toast.etaMin")}`;
+}
+
+export function startRegsetJob(name: string, files: File[], ocr: boolean, onDone?: (setName: string) => void): void {
+  if (regset.get().active) return; // chống bấm đúp
+  const pid = crypto.randomUUID();
+  regset.emit({
+    active: true, name, files: files.map((f) => f.name), text: translate("rset.running"),
+    pct: null, eta: "", error: "", result: null, startedAt: Date.now(),
+  });
+  // Ước lượng khâu đọc ảnh theo TỐC ĐỘ ĐO ĐƯỢC của chính lượt này (trang đầu tính từ mốc
+  // đầu tiên: lượt chạy lại có thể đã có sẵn nhiều trang trong bộ nhớ đệm, không được tính).
+  let ocrMark: { file: number; done: number; at: number } | null = null;
+  const stop = watchProgress(
+    pid,
+    (t) => regset.emit({ text: t }),
+    (d) => {
+      if (d.stage !== "regset") return;
+      const pct = regsetPct(d);
+      if (pct !== null) regset.emit({ pct });
+      if (d.phase !== "ocr" || !d.total) {
+        if (regset.get().eta) regset.emit({ eta: "" });
+        return;
+      }
+      const done = d.done || 0;
+      if (!ocrMark || ocrMark.file !== d.file || done < ocrMark.done) {
+        ocrMark = { file: d.file || 1, done, at: Date.now() };
+        return;
+      }
+      if (done > ocrMark.done) {
+        const perPage = (Date.now() - ocrMark.at) / 1000 / (done - ocrMark.done);
+        regset.emit({ eta: `${translate("eta.left")} ${durationText(perPage * (d.total - done))}` });
+      }
+    },
+  );
+  addRegulationSet(name, files, ocr, pid)
+    .then((r) => {
+      notify("success", translate("rset.doneToast").replace("{name}", r.set || name), "/bo-quy-dinh");
+      regset.emit({ result: r });
+      onDone?.(r.set || name);
+    })
+    .catch((e) => {
+      const m = friendly(e);
+      notify("error", translate("rset.failToast") + m);
+      regset.emit({ error: m });
+    })
+    .finally(() => {
+      stop();
+      regset.emit({ active: false, text: "", pct: null, eta: "" });
+    });
+}
+
+// ── Hook đọc ba việc nền (bảng Thông báo + các trang) ──────────────────────
+export function useUploadJob(): UploadJob {
+  return useSyncExternalStore(upload.subscribe, upload.get);
+}
+export function useValidateJob(): ValidateJob {
+  return useSyncExternalStore(validate.subscribe, validate.get);
+}
+export function useRegsetJob(): RegsetJob {
+  return useSyncExternalStore(regset.subscribe, regset.get);
 }

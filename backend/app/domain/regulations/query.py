@@ -1,7 +1,7 @@
 """KHO QUY ĐỊNH (query) — truy vấn theo TỪNG TRƯỜNG: lọc siêu dữ liệu trước, xếp hạng ngữ nghĩa sau.
 
 Thứ tự hai bước đó là điểm phân biệt với một hệ RAG thông thường: bộ lọc `where` loại
-trước các đoạn KHÔNG được phép áp cho hồ sơ này (sai phạm vi, sai thị trường, chưa/hết
+trước các đoạn KHÔNG được phép áp cho hồ sơ này (sai phạm vi, sai loại văn bản, chưa/hết
 hiệu lực tại ngày ký), rồi mới tới xếp hạng ngữ nghĩa trên phần còn lại.
 """
 from __future__ import annotations
@@ -16,25 +16,22 @@ from app.core import settings
 
 from .dates import date_to_int
 from .embedding import EmbeddingError, embed_texts
-from .ingest import MARKET_GENERIC
 from .vectorstore import get_collection
 
 
 def _scope_conditions(jurisdiction: str, doc_types: list[str],
-                      market_id: str = "") -> list[dict[str, Any]]:
+                      reg_sets: list[str] | None = None) -> list[dict[str, Any]]:
     """Điều kiện PHẠM VI — phần KHÔNG BAO GIỜ được bỏ.
 
     Tách riêng khỏi điều kiện hiệu lực vì hai nhóm có sức nặng khác nhau: thiếu bộ lọc
-    ngày thì cùng lắm trích dẫn một bản luật chưa đúng thời điểm, còn thiếu bộ lọc
-    phạm vi thì hồ sơ Đài Loan trích dẫn điều khoản riêng của Nhật Bản — sai hẳn nước.
-    """
+    ngày thì cùng lắm trích dẫn một bản chưa đúng thời điểm, còn thiếu bộ lọc phạm vi
+    thì trích dẫn văn bản không thuộc loại mà bộ trường cho phép."""
     conditions: list[dict[str, Any]] = [{"jurisdiction": {"$eq": jurisdiction}}]
     if doc_types:
         conditions.append({"doc_type": {"$in": doc_types}})
-    # #1 LỌC THỊ TRƯỜNG: chỉ lấy điều khoản CHUNG hoặc của ĐÚNG thị trường đang xét —
-    # không để clause riêng của Hàn Quốc/Nhật Bản lọt vào trích dẫn hồ sơ Đài Loan.
-    if market_id:
-        conditions.append({"market": {"$in": [market_id, MARKET_GENERIC]}})
+    if reg_sets:
+        # Bộ kiểm tra chọn BỘ QUY ĐỊNH -> chỉ đoạn thuộc các bộ đó.
+        conditions.append({"reg_set": {"$in": list(reg_sets)}})
     return conditions
 
 
@@ -44,18 +41,18 @@ def _and(conditions: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _where_clause(signed_date: str, jurisdiction: str, doc_types: list[str],
-                  market_id: str = "") -> dict[str, Any]:
+                  reg_sets: list[str] | None = None) -> dict[str, Any]:
     """Bộ lọc metadata Chroma cho một hồ sơ cụ thể.
 
     Điểm cốt lõi là lọc theo NGÀY KÝ chứ không phải ngày hôm nay: hợp đồng phải được
-    đối chiếu với luật CÒN HIỆU LỰC TẠI THỜI ĐIỂM KÝ.
+    đối chiếu với quy định CÒN HIỆU LỰC TẠI THỜI ĐIỂM KÝ.
 
     KHÔNG ĐỌC ĐƯỢC NGÀY KÝ -> BỎ HẲN điều kiện hiệu lực, giữ nguyên phạm vi. Bản cũ
     thay bằng mốc dự phòng 19000101; mốc đó nhỏ hơn ngày hiệu lực của MỌI văn bản
     trong kho nên bộ lọc khớp 0 đoạn, và `_query_emb` lặng lẽ truy vấn lại KHÔNG lọc
     gì — mất luôn cả phạm vi. Nói thẳng "không biết ngày ký" ở đây thì phần lọc còn
     lại vẫn giữ được."""
-    conditions = _scope_conditions(jurisdiction, doc_types, market_id)
+    conditions = _scope_conditions(jurisdiction, doc_types, reg_sets)
     if signed_int := date_to_int(signed_date, default=0):
         conditions += [
             {"effective_from_int": {"$lte": signed_int}},
@@ -65,7 +62,7 @@ def _where_clause(signed_date: str, jurisdiction: str, doc_types: list[str],
 
 
 # ---------------------------------------------------------------------------
-# Reranker (CrossEncoder) — sắp lại đoạn luật theo độ liên quan với truy vấn.
+# Reranker (CrossEncoder) — sắp lại đoạn quy định theo độ liên quan với truy vấn.
 # ---------------------------------------------------------------------------
 _RERANKER: Any = None
 
@@ -91,7 +88,7 @@ def _get_reranker():
     return _RERANKER
 
 
-# ĐIỂM RERANK theo CẶP [câu truy vấn · đoạn luật]. Đây là phần đắt nhất của bước RAG
+# ĐIỂM RERANK theo CẶP [câu truy vấn · đoạn quy định]. Đây là phần đắt nhất của bước RAG
 # (168-235 giây mỗi lượt đo trên máy thật) và là phần DUY NHẤT trong chuỗi không phụ
 # thuộc bộ lọc: điểm của một cặp không đổi dù hồ sơ ký ngày nào. Đệm theo cặp — thay vì
 # theo cả kết quả truy vấn như `_QCACHE` — nên phần nạp trước (chạy song song với OCR,
@@ -138,10 +135,10 @@ def _query_emb(q_emb: list[float], where: dict[str, Any] | None, k: int, col,
     ngoài để caller có thể embed nhiều truy vấn trong 1 lượt (batch).
 
     `where_fallback` là bộ lọc DỰ PHÒNG dùng khi bộ lọc chính loại hết kết quả — nó
-    phải giữ nguyên PHẠM VI (jurisdiction · loại văn bản · thị trường) và chỉ nới phần
-    hiệu lực. Bản cũ dự phòng bằng `None`, tức bỏ sạch mọi bộ lọc: hồ sơ Đài Loan có
-    ngày ký đọc trượt sẽ nhận điều khoản riêng của Nhật Bản/Hàn Quốc, và trong báo cáo
-    trích dẫn đó nhìn không khác gì trích dẫn đúng."""
+    phải giữ nguyên PHẠM VI (jurisdiction · loại văn bản) và chỉ nới phần
+    hiệu lực. Dự phòng bằng `None` là bỏ sạch mọi bộ lọc: hồ sơ có ngày ký đọc trượt sẽ
+    nhận cả văn bản ngoài phạm vi, và trong báo cáo trích dẫn đó nhìn không khác gì
+    trích dẫn đúng."""
     def _run(where_clause: dict[str, Any] | None):
         return col.query(query_embeddings=[q_emb], n_results=k, where=where_clause,
                          include=["documents", "metadatas", "distances"])
@@ -163,9 +160,8 @@ def _query_emb(q_emb: list[float], where: dict[str, Any] | None, k: int, col,
             # Chi tiết kỹ thuật ghi ra log server; người dùng nhận thông báo dễ hiểu.
             print(f"[rag] Lệch chiều embedding (torch lỗi -> rơi về ONNX?): {e!r}")
             raise EmbeddingError(
-                "Kho quy định pháp luật chưa khớp với hệ thống nên chưa thể đối chiếu. "
-                "Cách khắc phục: nạp lại kho quy định bằng lệnh `npm run seed` "
-                "(hoặc nhờ người quản trị hệ thống), sau đó kiểm tra lại."
+                "Kho quy định cần được nạp lại trước khi đối chiếu. Hãy nhờ người quản trị "
+                "nạp lại kho quy định (trang Quản trị), sau đó kiểm tra lại."
             ) from e
         raise
 
@@ -185,7 +181,7 @@ def _query_emb(q_emb: list[float], where: dict[str, Any] | None, k: int, col,
 # không phụ thuộc bộ lọc `where` — ngày ký chỉ đọc được SAU khi OCR xong, nên đệm
 # theo where thì nạp trước không dùng lại được, còn đệm theo câu chữ thì dùng được.
 # Đệm KẾT QUẢ đã rerank (khóa: câu truy vấn + where + k) — ăn khi duyệt nhiều hồ sơ
-# CÙNG thị trường và cùng ngày ký trong một phiên chạy server.
+# CÙNG bộ trường và cùng ngày ký trong một phiên chạy server.
 # --------------------------------------------------------------------------
 _EMB_CACHE: OrderedDict[str, Any] = OrderedDict()
 _QCACHE: OrderedDict[tuple[str, str, int], list[dict[str, Any]]] = OrderedDict()
@@ -248,7 +244,7 @@ def _ranked_for_queries(
 
 
 def clear_query_cache() -> dict[str, int]:
-    """XÓA đệm kết quả truy vấn. PHẢI gọi mỗi khi kho luật được nạp lại.
+    """XÓA đệm kết quả truy vấn. PHẢI gọi mỗi khi kho quy định được nạp lại.
 
     `_QCACHE` khóa theo [câu truy vấn · bộ lọc · k] — KHÔNG có phần nào nói tới nội
     dung kho. Nạp lại kho trong CÙNG tiến trình (trang Quản trị sửa một file .md thì
@@ -267,17 +263,18 @@ def clear_query_cache() -> dict[str, int]:
         _RERANK_CACHE.clear()
     if n:
         metrics.bump("rag.cache_cleared", n)
-        print(f"[rag] Đã xóa {n} kết quả truy vấn trong bộ đệm (kho luật vừa đổi).")
+        print(f"[rag] Đã xóa {n} kết quả truy vấn trong bộ đệm (kho quy định vừa đổi).")
     return {"queries": n}
 
 
 def prefetch_regulations(
-    field_queries: list[str], jurisdiction: str = "VN", market_id: str = "",
+    field_queries: list[str], jurisdiction: str = "VN",
     doc_types: list[str] | None = None, per_field_k: int = 3,
+    reg_sets: list[str] | None = None,
 ) -> None:
-    """NẠP TRƯỚC phần nặng của RAG — gọi NGAY khi biết thị trường, KHÔNG chờ OCR.
+    """NẠP TRƯỚC phần nặng của RAG — gọi NGAY khi biết bộ trường, KHÔNG chờ OCR.
 
-    Truy vấn RAG chỉ cần [nhãn trường + thị trường]; chỉ có BỘ LỌC ngày ký là phải
+    Truy vấn RAG chỉ cần [loại hồ sơ + nhãn trường]; chỉ có BỘ LỌC ngày ký là phải
     chờ OCR. Nên ở đây làm sẵn BỐN thứ nặng và độc lập với ngày ký:
       1) nạp model embedding + encode toàn bộ câu truy vấn (thuần CPU);
       2) nạp model reranker (~1GB, lần đầu tải/khởi tạo rất lâu);
@@ -299,10 +296,10 @@ def prefetch_regulations(
         get_collection()
         _get_reranker()
         _embed_cached(qs)
-        where_pham_vi = _and(_scope_conditions(jurisdiction, doc_types or [], market_id))
+        where_pham_vi = _and(_scope_conditions(jurisdiction, doc_types or [], reg_sets))
         _ranked_for_queries(qs, where_pham_vi, per_field_k)
         print(f"[rag] nạp trước {len(set(qs))} truy vấn quy định + điểm rerank "
-              f"(thị trường '{market_id}', {jurisdiction}).")
+              f"({jurisdiction}).")
     except Exception as exc:  # noqa: BLE001
         print(f"[rag] nạp trước bỏ qua: {exc!r}")
 
@@ -316,13 +313,12 @@ def query_regulations_for_fields(
     guarantee_per_field: int = 2,
     total_cap: int = 48,
     field_keys: list[str] | None = None,
-    market_id: str = "",
+    reg_sets: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Truy vấn RAG THEO TỪNG TRƯỜNG rồi gộp lại.
 
     Một truy vấn gộp chung cho hàng chục trường sẽ chỉ kéo về các đoạn 'chung
-    chung' (vd thủ tục đăng ký hồ sơ) và bỏ sót điều luật riêng của từng trường
-    (tiền dịch vụ, thời giờ làm việc, bảo hiểm...). Vì vậy ta truy vấn RIÊNG cho
+    chung' và bỏ sót điều khoản riêng của từng trường. Vì vậy ta truy vấn RIÊNG cho
     mỗi trường (label + check_aspect) — embedding không tốn token LLM, vẫn giữ
     nguyên '1 LLM/1 việc' — rồi gộp & loại trùng theo nội dung để dựng đúng ngữ
     cảnh quy định cho bước kiểm tra (1 lần gọi LLM duy nhất).
@@ -335,19 +331,19 @@ def query_regulations_for_fields(
              for i, q in enumerate(field_queries) if q and q.strip()]
     if not pairs:
         return []
-    where = _where_clause(signed_date, jurisdiction, doc_types, market_id)
+    where = _where_clause(signed_date, jurisdiction, doc_types, reg_sets)
     # Dự phòng khi bộ lọc chính rỗng: BỎ hiệu lực, GIỮ phạm vi (xem `_query_emb`).
-    where_relaxed = _and(_scope_conditions(jurisdiction, doc_types, market_id))
+    where_relaxed = _and(_scope_conditions(jurisdiction, doc_types, reg_sets))
 
     # Truy vấn từng trường; nếu bật reranker thì sắp lại theo độ liên quan trước khi
     # lấy phần bắt buộc (guarantee_per_field) -> đoạn giữ lại sát nghĩa hơn.
-    # per_field: [(field_key, [chunk,...])] — giữ lại field_key để GẮN NHÃN đoạn luật
+    # per_field: [(field_key, [chunk,...])] — giữ lại field_key để GẮN NHÃN đoạn quy định
     # thuộc về trường nào; bước kiểm tra dùng nhãn này để trích dẫn ĐÚNG trường
     # (gộp chung một rổ thì trường nào cũng có thể lấy trích dẫn của trường khác).
     #
     # QUA BỘ NHỚ ĐỆM (`_QCACHE`): kết quả một truy vấn CHỈ phụ thuộc [câu truy vấn +
     # bộ lọc + k], KHÔNG phụ thuộc giá trị OCR của hồ sơ. Nhờ vậy bước này chạy được
-    # NGAY khi biết lựa chọn thị trường (xem `prefetch_regulations`), song song với
+    # NGAY khi biết bộ trường (xem `prefetch_regulations`), song song với
     # OCR — tới lúc bấm kiểm tra thì embedding + reranker (đều thuần CPU, nặng) đã
     # xong và thời gian đó bị giấu hẳn sau OCR.
     ranked = _ranked_for_queries([q for q, _k in pairs], where, per_field_k, where_relaxed)

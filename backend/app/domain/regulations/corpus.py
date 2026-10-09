@@ -1,4 +1,4 @@
-"""KHO QUY ĐỊNH (corpus) — QUẢN TRỊ kho luật: nguồn chính thức · phiên bản · hiệu lực · hàm băm · người phê duyệt.
+"""KHO QUY ĐỊNH (corpus) — QUẢN TRỊ kho quy định: nguồn chính thức · phiên bản · hiệu lực · hàm băm · người phê duyệt.
 
 Vì sao cần: kết luận pháp lý của hệ chỉ đáng tin bằng đúng bản văn bản đã nạp. Trước
 đây `seed()` suy mọi thứ từ TÊN FILE — đổi một chữ trong file luật, hay thay cả file
@@ -11,7 +11,7 @@ bốn thứ:
      file mà không qua phê duyệt -> `hash_mismatch`.
   4. NGƯỜI PHÊ DUYỆT    `approved_by` · `approved_at`. Trống = CHƯA duyệt.
 
-Và một thứ thứ năm suy ra từ cả bốn: DẤU VÂN TAY kho luật (`corpus_fingerprint`). Nó
+Và một thứ thứ năm suy ra từ cả bốn: DẤU VÂN TAY kho quy định (`corpus_fingerprint`). Nó
 gộp [hàm băm mọi văn bản + model embedding + phiên bản prompt kiểm tra]. Báo cáo lưu
 vân tay của lúc chạy; vân tay hiện tại khác đi nghĩa là corpus/model/prompt đã đổi và
 báo cáo cũ PHẢI được kiểm lại — đó là điều kiện phát hành, không phải lời khuyên.
@@ -57,7 +57,7 @@ def sha256_file(path: Path) -> str:
 
 
 def load_registry() -> dict[str, Any]:
-    """Đăng bạ kho luật. Thiếu/hỏng file -> đăng bạ RỖNG (mọi văn bản thành
+    """Đăng bạ kho quy định. Thiếu/hỏng file -> đăng bạ RỖNG (mọi văn bản thành
     `unregistered`) chứ không nổ: mất đăng bạ là sự cố quản trị, phải nhìn thấy được
     trên trang quản trị, không phải một backend không khởi động nổi."""
     try:
@@ -115,6 +115,7 @@ def audit_corpus() -> dict[str, Any]:
             "approved_at": e.get("approved_at") or "",
             "sha256": e.get("sha256") or "",
             "sha256_actual": actual or "",
+            "set": e.get("set") or "",
             "status": status,
             "status_text": STATUS_TEXT[status],
         })
@@ -125,7 +126,7 @@ def audit_corpus() -> dict[str, Any]:
                 "file": name, "title": name, "doc_no": "", "doc_type": "",
                 "official_source": "", "corpus_version": "", "effective_from": "",
                 "effective_to": "", "approved_by": "", "approved_at": "",
-                "sha256": "", "sha256_actual": actual,
+                "sha256": "", "sha256_actual": actual, "set": "",
                 "status": "unregistered", "status_text": STATUS_TEXT["unregistered"],
             })
 
@@ -150,8 +151,8 @@ def sync_registry() -> dict[str, Any]:
     for p in sorted(RULES_DIR.glob("*.md")):
         if p.name in known:
             continue
-        # `title` để TRỐNG có chủ ý: tên hiển thị suy từ số hiệu văn bản (`seed`) sát
-        # hơn hẳn tên file, mà một chuỗi tự sinh ở đây sẽ THẮNG phép suy đó và khóa
+        # `title` để TRỐNG có chủ ý: `seed` lấy tên hiển thị từ TIÊU ĐỀ ĐẦU của văn bản,
+        # sát hơn hẳn tên file; một chuỗi tự sinh ở đây sẽ THẮNG phép suy đó và khóa
         # cứng một cái tên xấu vào mọi trích dẫn.
         reg["entries"].append({
             "file": p.name, "title": "", "doc_no": "",
@@ -193,7 +194,7 @@ def corpus_fingerprint(docs: list[dict[str, Any]] | None = None) -> str:
     """DẤU VÂN TAY của toàn bộ căn cứ sinh ra một kết luận, 16 ký tự hex.
 
     Gộp ba thứ mà đổi một trong ba là kết luận có thể khác đi:
-      · hàm băm THỰC TẾ của từng văn bản luật (không phải hàm băm đã khai — ta muốn
+      · hàm băm THỰC TẾ của từng văn bản quy định (không phải hàm băm đã khai — ta muốn
         biết hệ vừa chạy trên nội dung nào, kể cả khi nội dung đó chưa được duyệt);
       · model embedding + model kiểm tra;
       · phiên bản prompt kiểm tra.
@@ -225,7 +226,7 @@ def corpus_fingerprint(docs: list[dict[str, Any]] | None = None) -> str:
 
 
 def metadata_for(file: str) -> dict[str, Any]:
-    """Phần quản trị đi kèm MỖI đoạn luật khi nạp (xem `ingest_markdown_text`).
+    """Phần quản trị đi kèm MỖI đoạn quy định khi nạp (xem `ingest_markdown_text`).
 
     Chỉ những khóa vô hướng — Chroma không lưu được dict/list trong metadata."""
     for e in load_registry()["entries"]:
@@ -237,12 +238,35 @@ def metadata_for(file: str) -> dict[str, Any]:
                 "approved_by": e.get("approved_by") or "",
                 "approved_at": e.get("approved_at") or "",
                 "content_sha256": (e.get("sha256") or "")[:16],
+                # BỘ QUY ĐỊNH chứa văn bản này — bộ lọc `reg_set` của truy vấn dựa vào đây
+                # để bộ kiểm tra chỉ đối chiếu với các bộ quy định nó chọn.
+                "reg_set": e.get("set") or "",
             }
-    return {}
+    return {"reg_set": ""}
+
+
+def regulation_sets() -> list[dict[str, Any]]:
+    """Các BỘ QUY ĐỊNH (nhóm văn bản có tên) trong đăng bạ, kèm số văn bản và tên tệp.
+
+    Văn bản không thuộc bộ nào (nạp tay vào `app/rules`, khai trong đăng bạ không có
+    `set`) không nằm trong danh sách: chúng chỉ được dùng khi bộ kiểm tra KHÔNG chọn bộ
+    quy định nào (đối chiếu với toàn kho)."""
+    on_disk = {p.name for p in RULES_DIR.glob("*.md")}
+    groups: dict[str, dict[str, Any]] = {}
+    for e in load_registry()["entries"]:
+        name = str(e.get("set") or "").strip()
+        f = str(e.get("file") or "")
+        if not name or f not in on_disk:
+            continue
+        g = groups.setdefault(name, {"name": name, "documents": 0, "files": [], "titles": []})
+        g["documents"] += 1
+        g["files"].append(f)
+        g["titles"].append(e.get("title") or f)
+    return sorted(groups.values(), key=lambda g: g["name"].lower())
 
 
 __all__ = [
     "REGISTRY_FILE", "RULES_DIR", "STATUS_ORDER", "STATUS_TEXT", "approve", "audit_corpus",
-    "corpus_fingerprint", "load_registry", "metadata_for", "save_registry",
+    "corpus_fingerprint", "load_registry", "metadata_for", "regulation_sets", "save_registry",
     "sha256_file", "sha256_text", "sync_registry",
 ]

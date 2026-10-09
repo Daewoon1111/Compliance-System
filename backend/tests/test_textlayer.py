@@ -14,19 +14,19 @@ import pytest
 from app.core import settings
 from app.domain.documents import textlayer
 
-# Một đoạn OCR hỏng có thật, lấy từ lớp văn bản mà iLovePDF nhúng sẵn vào hồ sơ 160
-# trang: dấu chấm/phẩy chen giữa chữ, chữ hoa mọc giữa từ.
-RAC = ("ACIiNI shall i,nnrediatcly causc thc rcp.triatiol and rcplaocnrent of the "
-       "SEAM,^N at the ACEN I'S sole exfcnsc. (]IITiW N'T,\\NNTN(i (iRFIiN4I:NT No "
-       "04/(bnliacl 2i)24 oar CRliw M NNIN(i r\\qtrilNlliN I APPTiNDIX 3 -VESSTLS "
-       "ANt) CRtiw lNQUrRy thc rcp.triatiol i,nnrediatcly causc")
+# Đoạn OCR hỏng theo đúng kiểu lớp văn bản mà công cụ OCR của bên thứ ba nhúng sẵn
+# vào PDF scan: dấu chấm/phẩy chen giữa chữ, chữ hoa mọc giữa từ.
+RAC = ("SUPPI.IiR shall i,nnrediatcly causc thc rcp.air and rcplaocnrent of the "
+       "DIiV,^CE at the SUPPI.IiR'S sole exfcnsc. (]IITiW N'T,\\NNTN(i (iRFIiN4I:NT No "
+       "04/(bnliacl 2i)24 oar SIiRV M NNIN(i r\\qtrilNlliN I APPTiNDIX 3 -GOODS "
+       "ANt) SIiRV lNQUrRy thc rcp.air i,nnrediatcly causc")
 
-SACH_VI = ("BỘ LAO ĐỘNG THƯƠNG BINH VÀ XÃ HỘI CỤC QUẢN LÝ LAO ĐỘNG NGOÀI NƯỚC "
-           "CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM Độc lập Tự do Hạnh Phúc "
-           "Đăng ký hợp đồng cung ứng lao động đi làm việc tại Nhật Bản "
-           "Kính gửi công ty cổ phần đào tạo và cung ứng nhân lực")
+SACH_VI = ("CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM Độc lập Tự do Hạnh Phúc "
+           "HỢP ĐỒNG DỊCH VỤ số 15/2025/HĐDV giữa công ty cổ phần thương mại "
+           "Minh Phát và công ty trách nhiệm hữu hạn dịch vụ An Bình "
+           "Kính gửi phòng hành chính tổng hợp của hai bên ký kết")
 
-SACH_EN = ("Permanent disability which is not as a result of an accident is not "
+SACH_EN = ("Damage which is not as a result of normal use of the goods is not "
            "covered by the Agreement. Any payment effected under the clauses above "
            "shall be without prejudice to any claim for compensation made in law, "
            "but shall be deducted from any settlement in respect of such claims.")
@@ -154,7 +154,7 @@ def test_pdf_hong_khong_lam_sap_pipeline():
 
 
 def test_plan_chia_dung_hai_nhom():
-    data = _pdf([(15, 10 + i * 8, f"Dòng nội dung số {i} của hợp đồng cung ứng lao động")
+    data = _pdf([(15, 10 + i * 8, f"Dòng nội dung số {i} của hợp đồng dịch vụ mẫu")
                  for i in range(12)])
     plan = textlayer.plan(data)
     assert plan["total"] == 1

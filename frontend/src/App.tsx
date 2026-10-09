@@ -10,7 +10,9 @@ const Result = lazy(() => import("./pages/result"));
 const Dashboard = lazy(() => import("./pages/dashboard"));
 const History = lazy(() => import("./pages/history"));
 const Config = lazy(() => import("./pages/config"));
+const RegSets = lazy(() => import("./pages/regsets"));
 const Admin = lazy(() => import("./pages/admin"));
+const Settings = lazy(() => import("./pages/settings"));
 
 function Loading() {
   const t = useT();
@@ -34,6 +36,9 @@ export default function App() {
           <Route path="/history" element={<History />} />
           {/* Cấu hình của người dùng — không cần mã quản trị. */}
           <Route path="/cau-hinh" element={<Config />} />
+          {/* Bộ quy định của người dùng — xem, nạp thêm văn bản. */}
+          <Route path="/bo-quy-dinh" element={<RegSets />} />
+          <Route path="/cai-dat" element={<Settings />} />
           {/* Quản trị — khu riêng, phải đăng nhập bằng mã quản trị. Hai trang con
               dùng CHUNG component (khác nhau ở phần thân) để không nhân đôi phần
               đăng nhập + vỏ sidebar. */}

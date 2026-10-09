@@ -2,9 +2,9 @@
 
 Chạy từ thư mục backend:  python -m app.domain.regulations   (npm run seed)
 
-Nguồn sự thật cho số hiệu / hiệu lực / tên hiển thị là ĐĂNG BẠ `rules/corpus.json`
-(xem `corpus.py`). Suy từ tên file chỉ còn là lối DỰ PHÒNG cho văn bản chưa kịp khai
-— giữ lại vì mất đăng bạ không được phép làm hệ ngừng đối chiếu.
+Nguồn sự thật cho tên văn bản / loại / hiệu lực là ĐĂNG BẠ `rules/corpus.json` (xem
+`corpus.py`). Văn bản chưa khai trong đăng bạ vẫn được nạp với giá trị suy từ tên
+file — mất đăng bạ không được phép làm hệ ngừng đối chiếu.
 """
 from __future__ import annotations
 
@@ -14,115 +14,118 @@ from .vectorstore import prune_orphan_rows, prune_orphan_segments, reset_collect
 
 MARKDOWN_DIR = corpus.RULES_DIR
 
-# ---------------------------------------------------------------------------
-# DỰ PHÒNG khi văn bản chưa được khai trong corpus.json.
-# ---------------------------------------------------------------------------
-EFFECTIVE_FROM_BY_KEYWORD = {
-    "69-2020": "2022-01-01",   # Luật 69/2020/QH14
-    "112-2021": "2022-01-01",  # Nghị định 112/2021/NĐ-CP
-    "21-2021": "2022-02-01",   # Thông tư 21/2021/TT-BLĐTBXH
-    "02-2024": "2024-05-15",   # Thông tư 02/2024/TT-BLĐTBXH (hiệu lực 15/5/2024, Điều 4)
-}
-
-SOURCE_TITLE_BY_KEYWORD = {
-    "69-2020": "Luật số 69/2020/QH14",
-    "112-2021": "Nghị định số 112/2021/NĐ-CP",
-    "02-2024": "Thông tư số 02/2024/TT-BLĐTBXH",
-    "21-2021": "Thông tư số 21/2021/TT-BLĐTBXH",
-}
+# Loại văn bản suy từ TÊN FILE (bỏ dấu, chữ thường) khi đăng bạ chưa khai.
+_DOC_TYPE_HINTS = (
+    (("nghi_dinh", "nghi-dinh", "nd-cp"), "decree"),
+    (("thong_tu", "thong-tu", "tt-"), "circular"),
+    (("quyet_dinh", "quyet-dinh", "qd-"), "decision"),
+    (("luat", "law"), "law"),
+)
 
 
 def _infer_doc_type(filename: str) -> str:
-    """Loại văn bản suy từ TÊN FILE: nghị định | thông tư | luật (mặc định)."""
-    name = filename.lower()
-    if "nghi_dinh" in name or "nd-cp" in name or "nđ-cp" in name:
-        return "decree"
-    if "thong_tu" in name or "tt-" in name:
-        return "circular"
-    return "labor_law"
+    from app.domain.documents.ocr import fold_diacritics  # noqa: PLC0415
+
+    name = fold_diacritics(filename).lower()
+    for keys, doc_type in _DOC_TYPE_HINTS:
+        if any(k in name for k in keys):
+            return doc_type
+    return "regulation"
 
 
-def _infer_effective_from(filename: str) -> str:
-    """Ngày hiệu lực theo số hiệu trong tên file. Không khớp -> '2000-01-01', tức
-    không bao giờ bị bộ lọc ngày ký loại oan."""
-    name = filename.replace("_", "-")
-    return next((d for kw, d in EFFECTIVE_FROM_BY_KEYWORD.items() if kw in name), "2000-01-01")
+def _title_of(filename: str, text: str) -> str:
+    """Tên hiển thị khi đăng bạ chưa khai: đề mục `# ...` đầu tiên của văn bản, không có
+    thì tên file bỏ đuôi. Tên này đi vào MỌI trích dẫn nên ưu tiên tên người đọc hiểu."""
+    for line in text.splitlines()[:40]:
+        s = line.strip()
+        if s.startswith("#"):
+            if title := s.lstrip("#").strip():
+                return title[:160]
+    return filename.rsplit(".", 1)[0].replace("_", " ").strip()
 
 
-def _infer_source_title(filename: str) -> str:
-    """Tên có dấu để hiển thị trong trích dẫn; không khớp -> dùng tên file."""
-    name = filename.replace("_", "-")
-    return next((t for kw, t in SOURCE_TITLE_BY_KEYWORD.items() if kw in name), filename)
+def _plan(filename: str, entry: dict | None, text: str = "") -> dict:
+    """Tên/loại/hiệu lực dùng để nạp MỘT văn bản — đăng bạ trước, suy ra sau.
 
-
-def _plan(filename: str, entry: dict | None) -> dict:
-    """Số hiệu/hiệu lực/tên hiển thị dùng để nạp MỘT văn bản — đăng bạ trước, suy sau."""
+    Không khai ngày hiệu lực -> '2000-01-01': văn bản không bao giờ bị bộ lọc ngày ký
+    loại oan."""
     e = entry or {}
     return {
-        "source_doc": e.get("title") or _infer_source_title(filename),
+        "source_doc": e.get("title") or _title_of(filename, text),
         "doc_type": e.get("doc_type") or _infer_doc_type(filename),
-        "effective_from": e.get("effective_from") or _infer_effective_from(filename),
+        "effective_from": e.get("effective_from") or "2000-01-01",
         "effective_to": e.get("effective_to") or None,
     }
 
 
-def seed(jurisdiction: str = "VN", reset: bool = True, require_approval: bool = False) -> dict:
+def seed(jurisdiction: str = "VN", reset: bool = True, require_approval: bool = False,
+         only: list[str] | None = None, on_progress=None) -> dict:
     """Nạp TOÀN BỘ file .md trong `backend/app/rules` vào ChromaDB (`npm run seed`).
 
-    `reset=True` (mặc định) xóa sạch collection trước khi nạp — chạy seed nhiều lần
-    không còn cộng dồn bản sao.
+    `reset=True` (mặc định) xóa sạch collection trước khi nạp — chạy nhiều lần không
+    cộng dồn bản sao. `require_approval=True` thì văn bản CHƯA phê duyệt hoặc LỆCH HÀM
+    BĂM bị bỏ qua và ghi vào `skipped`.
 
-    `require_approval=True` thì văn bản CHƯA phê duyệt hoặc LỆCH HÀM BĂM sẽ bị bỏ qua
-    và ghi vào phần `skipped` của kết quả. Mặc định False vì môi trường phát triển phải
-    seed được ngay; bật lên là một mục trong bảng kiểm phát hành."""
+    `only=[tên tệp]`: NẠP GIA TĂNG — chỉ vector hóa các văn bản vừa thêm, KHÔNG xóa kho.
+    Nạp một bộ quy định mới mà xóa-nạp lại cả kho thì thời gian tăng theo TỔNG số văn bản
+    đã có, không theo phần vừa thêm. ID đoạn xác định theo nội dung nên upsert không tạo
+    bản sao. `on_progress(file_no, files, done, total)` báo tiến độ vector hóa."""
     paths = sorted(MARKDOWN_DIR.glob("*.md"))
-    if not paths:
-        print(f"[seed] Không tìm thấy file trong {MARKDOWN_DIR}")
-        return {"total": 0, "documents": 0, "skipped": []}
-
+    if only is not None:
+        wanted = set(only)
+        paths = [p for p in paths if p.name in wanted]
+        reset = False
     corpus.sync_registry()
-    audit = {d["file"]: d for d in corpus.audit_corpus()["documents"]}
-    by_file = {str(e.get("file")): e for e in corpus.load_registry()["entries"]}
-
     if reset:
         reset_collection()
         print("[seed] Đã xóa sạch collection cũ trước khi nạp lại.")
+    if not paths:
+        print(f"[seed] Kho quy định trống — chưa có file .md nào trong {MARKDOWN_DIR}")
+        return {"total": 0, "documents": 0, "skipped": []}
+
+    audit = {d["file"]: d for d in corpus.audit_corpus()["documents"]}
+    by_file = {str(e.get("file")): e for e in corpus.load_registry()["entries"]}
 
     total = 0
     loaded = 0
     skipped: list[dict] = []
-    for path in paths:
+    for file_no, path in enumerate(paths, start=1):
         st = (audit.get(path.name) or {}).get("status", "unregistered")
         if require_approval and st != "ok":
             skipped.append({"file": path.name, "status": st})
             print(f"[seed] BỎ QUA {path.name}: {corpus.STATUS_TEXT.get(st, st)}")
             continue
-        if st in ("hash_mismatch",):
+        if st == "hash_mismatch":
             print(f"[seed] CẢNH BÁO {path.name}: nội dung khác bản đã phê duyệt.")
 
-        plan = _plan(path.name, by_file.get(path.name))
+        text = path.read_text(encoding="utf-8")
+        plan = _plan(path.name, by_file.get(path.name), text)
         res = ingest_markdown_text(
-            md_text=path.read_text(encoding="utf-8"),
-            source_doc=plan["source_doc"],   # tên CÓ DẤU -> trích dẫn hiển thị đẹp
+            md_text=text,
+            source_doc=plan["source_doc"],
             jurisdiction=jurisdiction,
             doc_type=plan["doc_type"],
             effective_from=plan["effective_from"],
             effective_to=plan["effective_to"],
             extra_metadata=corpus.metadata_for(path.name),
+            on_batch=(lambda d, n, f=file_no: on_progress(f, len(paths), d, n))
+            if on_progress else None,
         )
         total += res.get("inserted", 0)
         loaded += 1
-        print(f"[seed] {path.name} -> \"{plan['source_doc']}\": +{res.get('inserted', 0)} chunks "
+        print(f"[seed] {path.name} -> \"{plan['source_doc']}\": +{res.get('inserted', 0)} đoạn "
               f"(doc_type={plan['doc_type']}, effective_from={plan['effective_from']}, {st})")
 
+    if only is not None:      # gia tăng: không có gì bị xóa nên không có gì để dọn
+        print(f"[seed] Nạp thêm {total} đoạn từ {loaded} văn bản.")
+        return {"total": total, "documents": loaded, "skipped": skipped}
     if pruned := prune_orphan_segments():
         print(f"[seed] Đã dọn {pruned} thư mục segment cũ.")
-    # Dọn cả phần trong SQLite: xóa thư mục segment không gỡ hàng vector của nó.
     if rows := prune_orphan_rows():
         print(f"[seed] Đã dọn {rows} hàng vector mồ côi trong chroma.sqlite3.")
 
-    print(f"[seed] Hoàn tất. Tổng {total} chunks từ {loaded} văn bản. "
-          f"Vân tay kho luật: {corpus.corpus_fingerprint()}")
+    print(f"[seed] Hoàn tất. Tổng {total} đoạn từ {loaded} văn bản. "
+          f"Vân tay kho quy định: {corpus.corpus_fingerprint()}")
     return {"total": total, "documents": loaded, "skipped": skipped}
 
 

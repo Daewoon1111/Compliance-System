@@ -4,35 +4,38 @@
 import { C, TONE, toneOfVerdict } from "./colors";
 import type { JsonValue } from "./types";
 
-export const CARD = `rounded-xl border ${C.border} ${C.surface} p-4 shadow-sm`;
+/** THẺ: nền thẻ, viền mảnh, bo 16px, bóng mềm (khai trong index.css `.surface-card`). */
+export const CARD = "surface-card p-5";
 
 /**
- * NÚT CÓ CHỮ (nền + viền). Lớp `btn-hl` khai màu DI CHUỘT theo chế độ giao diện
- * trong index.css: nền tối -> nền ĐỎ chữ trắng, nền sáng -> nền XANH chữ trắng.
- * Phải khai bằng CSS vì màu phụ thuộc `.dark`, không viết được trong một chuỗi
- * class Tailwind duy nhất.
+ * NÚT PHỤ (nền phụ + viền). Lớp `btn-hl` khai màu DI CHUỘT trong index.css theo biến
+ * màu, nên đúng ở cả giao diện sáng lẫn tối.
  */
 export const BTN =
-  `btn-hl inline-flex items-center justify-center cursor-pointer rounded-lg border ${C.border} ` +
-  `${C.surface} px-4.5 py-[9px] text-sm font-semibold ${C.ink} transition-colors ` +
+  `btn-hl inline-flex items-center justify-center gap-2 cursor-pointer rounded-[10px] border ` +
+  `border-slate-300 bg-slate-100 px-4 py-2 text-sm font-bold ${C.ink} transition-all ` +
   "disabled:opacity-50 disabled:cursor-not-allowed";
 
-/** Nút CHÍNH (nền màu nhấn). Lớp `btn-accent` khai màu nền + màu di chuột theo chế
- *  độ trong index.css: nền sáng giữ XANH (hover bạc, chữ đen); nền tối đổi sang
- *  CAM ĐỎ #FF6347 (hover xanh nhạt #E0FFFF, chữ đen) cho nổi trên nền tối. */
+/** NÚT CHÍNH (nền màu nhấn + quầng sáng). Một trang chỉ nên có MỘT nút loại này. */
 export const BTN_PRIMARY =
-  "btn-accent inline-flex items-center justify-center cursor-pointer rounded-lg border border-blue-600 " +
-  "bg-blue-600 px-4.5 py-[9px] text-sm font-semibold text-white transition-colors " +
-  "disabled:opacity-50 disabled:cursor-not-allowed";
+  "btn-accent inline-flex items-center justify-center gap-2 cursor-pointer rounded-[10px] border border-blue-600 " +
+  "bg-blue-600 px-5 py-2 text-sm font-bold text-white transition-all " +
+  "disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none";
+
+/** NÚT TRƠN — chỉ chữ + biểu tượng, cho thao tác phụ cạnh nút chính (Hủy, Trở lại). */
+export const BTN_GHOST =
+  "inline-flex items-center justify-center gap-2 cursor-pointer rounded-[10px] border border-slate-200 " +
+  "bg-transparent px-4 py-2 text-sm font-bold text-slate-500 transition-colors hover:border-slate-300 " +
+  "hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50 disabled:cursor-not-allowed";
 
 export const FIELD =
-  `w-full rounded-lg border ${C.border} ${C.surface} px-3 py-2 ${C.ink} ` +
-  "focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500";
+  "w-full rounded-[9px] border border-slate-200 bg-slate-50 px-3 py-2 text-slate-800 " +
+  "transition-[border-color,box-shadow]";
 
 /** Badge KẾT LUẬN — màu lấy từ bộ quy tắc màu (`colors.ts`), không tự chọn sắc độ.
  *
- * `whitespace-nowrap`: nhãn kết luận là một CỤM ĐỌC MỘT LẦN ("Theo luật nước tiếp
- * nhận"). Cho nó vỡ dòng trong viên nang bo tròn thì chữ bị bẻ giữa cụm và viên
+ * `whitespace-nowrap`: nhãn kết luận là một CỤM ĐỌC MỘT LẦN ("Cần bổ sung"). Cho
+ * nó vỡ dòng trong viên nang bo tròn thì chữ bị bẻ giữa cụm và viên
  * nang cao gấp đôi, làm lệch cả hàng bảng. Cột chứa badge phải tự nới theo. */
 export function badgeCls(v: string): string {
   return (
@@ -41,21 +44,15 @@ export function badgeCls(v: string): string {
   );
 }
 
-/** Hiển thị giá trị trường gọn: tiền {amount,currency,period,raw} -> '550 USD/tháng'.
- * KHÔNG BAO GIỜ in JSON thô cho người dùng: object không đọc được -> empty.
- *
- * `withPeriod=false`: bỏ kỳ trả ('/tháng') — dùng cho CÁC KHOẢN CHI PHÍ. Chi phí là
- * khoản thu/chi MỘT LẦN cho cả hợp đồng (tiền dịch vụ, visa, khám sức khỏe...), ghi
- * '0 VND/tháng' là sai bản chất. Chỉ TIỀN LƯƠNG mới có kỳ trả theo tháng. */
+/** Hiển thị giá trị trường gọn: tiền {amount,currency,period,raw} -> '120.000.000 VNĐ'.
+ * KHÔNG BAO GIỜ in JSON thô cho người dùng: object không đọc được -> empty. */
 /** Đơn vị tiền hiển thị theo lối viết Việt Nam: nội bộ lưu "VND" (ASCII, an toàn cho
  *  regex/so khớp), nhưng trên hồ sơ và giao diện phải là "VNĐ". */
 function fmtCurrency(c: JsonValue | undefined): string {
   return String(c ?? "").toUpperCase() === "VND" ? "VNĐ" : String(c ?? "");
 }
 
-export function fmtFieldValue(
-  v: JsonValue | undefined, empty = "—", withPeriod = true,
-): string {
+export function fmtFieldValue(v: JsonValue | undefined, empty = "—"): string {
   if (v === null || v === undefined || v === "") return empty;
   if (typeof v === "object") {
     const o = v as Record<string, JsonValue>;
@@ -66,42 +63,61 @@ export function fmtFieldValue(
     const amt = typeof o.amount === "number" ? o.amount
       : (typeof o.amount === "string" && o.amount.trim() && !Number.isNaN(Number(o.amount))
           ? Number(o.amount) : null);
-    // GHI CHÚ trong ngoặc đi kèm số tiền trên hợp đồng: mức quy đổi thứ hai
-    // ('1.150 JPY/giờ') hoặc LÝ DO khoản thu ('Phí trả cho đại lý làm visa') — bỏ đi
-    // là bỏ đúng chỗ quyết định khoản đó có hợp lệ hay không.
+    // GHI CHÚ trong ngoặc đi kèm số tiền trên văn bản (mức quy đổi, lý do khoản thu)
+    // — bỏ đi là bỏ đúng chỗ quyết định khoản đó có hợp lệ hay không.
     const note = typeof o.note === "string" && o.note.trim() ? ` (${o.note.trim()})` : "";
     if (amt !== null) {
       const money = [amt.toLocaleString("vi-VN"), fmtCurrency(o.currency)]
         .filter((x) => x !== "").join(" ");
-      return (withPeriod && typeof o.period === "string" && o.period
-        ? `${money}/${o.period}` : money) + note;
+      return (typeof o.period === "string" && o.period ? `${money}/${o.period}` : money) + note;
     }
-    if (typeof o.raw === "string" && o.raw.trim()) {
-      // raw thô có thể dính kỳ trả ('0 VND/tháng') -> cắt bỏ khi không cần kỳ trả.
-      const raw = o.raw.trim();
-      return (withPeriod ? raw : raw.replace(/\s*\/\s*(tháng|năm|tuần|ngày|giờ|month|year|week|day|hour)\b.*$/i, "")) + note;
-    }
+    if (typeof o.raw === "string" && o.raw.trim()) return o.raw.trim() + note;
     // Vỏ rỗng ({amount:null,...}) hoặc object lạ -> coi như trống.
     return empty;
   }
   return String(v);
 }
 
-/** Giá trị MỘT KHOẢN CHI PHÍ: chỉ 'số tiền + đơn vị tiền tệ', không kèm kỳ trả. */
-export function fmtCostValue(v: JsonValue | undefined, empty = "—"): string {
-  return fmtFieldValue(v, empty, false);
+/** Khóa nhận diện một file trong danh sách tải lên (tên + dung lượng — cùng cách trang
+ *  tải lên khử trùng file). Vùng cần kiểm tra gắn với file theo khóa này. */
+export function fileKey(f: File): string {
+  return f.name + f.size;
 }
 
-/** NHÃN "Loại hình công việc" — loại hình đã chọn kèm TÊN CÔNG VIỆC đọc được từ hợp
- *  đồng: `Lao động kỹ năng đặc định - "Nông nghiệp"`.
- *
- *  Loại hình là thứ người dùng CHỌN ở trang 1 (quyết định bộ trường và bộ quy định);
- *  tên công việc là thứ hợp đồng GHI. Hai thứ khác nhau nhưng người duyệt cần đọc
- *  cùng lúc để thấy ngay hồ sơ có đúng loại hình đã chọn hay không. Không trích được
- *  tên công việc thì giữ nguyên nhãn cũ, không thêm dấu ngoặc rỗng. */
-export function jobTypeText(jobType: string, jobTitle?: string): string {
-  const base = (jobType || "").trim();
-  const name = (jobTitle || "").trim();
-  if (!name) return base || "—";
-  return base ? `${base} - "${name}"` : `"${name}"`;
+/** In một trang HTML (báo cáo) qua KHUNG ẨN gắn tạm vào trang hiện tại, rồi gỡ khung sau
+ *  khi hộp thoại in đóng. Không dùng `window.open`: cửa sổ phần mềm gốc (pywebview) không
+ *  có tab phụ, lời gọi đó bị đẩy sang trình duyệt ngoài với trang trắng. Trả false khi
+ *  không dựng được khung. Tiêu đề trang = tên tệp gợi ý khi "Lưu thành PDF". */
+export function printHtml(html: string, title: string): boolean {
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  // Cỡ 0 chứ không `visibility:hidden` — khung bị ẩn hẳn thì Chromium in ra trang trắng.
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument;
+  const win = frame.contentWindow;
+  if (!doc || !win) {
+    frame.remove();
+    return false;
+  }
+  doc.open();
+  doc.write(html);
+  doc.title = title;
+  doc.close();
+  let removed = false;
+  const cleanup = () => {
+    if (removed) return;
+    removed = true;
+    frame.remove();
+  };
+  win.addEventListener("afterprint", () => setTimeout(cleanup, 0));
+  // Chờ ảnh/phông trong báo cáo dựng xong rồi mới mở hộp thoại in.
+  setTimeout(() => {
+    win.focus();
+    win.print();
+    // Phòng khi môi trường không bắn `afterprint`: khung 0×0 vô hại, gỡ sau 1 phút.
+    setTimeout(cleanup, 60_000);
+  }, 350);
+  return true;
 }

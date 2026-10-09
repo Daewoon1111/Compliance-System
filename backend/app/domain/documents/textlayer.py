@@ -74,7 +74,7 @@ def junk_ratio(text: str) -> float | None:
     return round(bad / len(words), 3)
 
 
-def _page_lines(page) -> list[dict[str, Any]]:
+def _page_lines(page, crop: tuple[float, float, float, float] | None = None) -> list[dict[str, Any]]:
     """Một trang PDF -> danh sách dòng `{text, conf}` cùng dạng với đường đọc ảnh.
 
     Tọa độ ô chữ (điểm PDF) chỉ dùng để gom ô thành dòng và tách cột ngay trong hàm này.
@@ -83,11 +83,18 @@ def _page_lines(page) -> list[dict[str, Any]]:
     không nối chuỗi của từng ô chữ: các ô chữ chồng lấn nhau nên nối tay sẽ nhân đôi ký
     tự ("Tự ự do", "Hà N Nội")."""
     tp = page.get_textpage()
-    w_pt, _h_pt = page.get_size()
+    w_pt, h_pt = page.get_size()
 
     boxes: list[tuple[float, float, float, float]] = []
     for i in range(tp.count_rects()):
         rect = tp.get_rect(i)
+        if crop is not None:
+            # VÙNG CẦN KIỂM TRA người dùng khoanh: chuẩn hóa 0..1, gốc TRÊN-trái như ảnh
+            # trang; tọa độ PDF tính từ góc DƯỚI-trái -> đổi rồi giữ ô chữ có TÂM trong vùng.
+            cx = (rect[0] + rect[2]) / 2 / max(w_pt, 1e-6)
+            cy = 1 - (rect[1] + rect[3]) / 2 / max(h_pt, 1e-6)
+            if not (crop[0] <= cx <= crop[2] and crop[1] <= cy <= crop[3]):
+                continue
         if tp.get_text_bounded(*rect).strip():
             boxes.append(rect)
     if not boxes:
@@ -125,9 +132,11 @@ def _line(tp, seg) -> dict[str, Any]:
     return {"text": text, "conf": 1.0}
 
 
-def read_pages(data: bytes) -> list[dict[str, Any]]:
+def read_pages(data: bytes, crops: dict[int, tuple[float, float, float, float]] | None = None,
+               ) -> list[dict[str, Any]]:
     """Rút lớp văn bản của MỌI trang. Lỗi/thiếu thư viện -> danh sách rỗng (rơi về OCR).
 
+    `crops`: {chỉ số trang: vùng chuẩn hóa} — trang có vùng chỉ lấy chữ trong vùng đó.
     Mỗi phần tử: `{index, lines, chars, junk, meta}`."""
     try:
         import pypdfium2  # noqa: F401,PLC0415 — chỉ kiểm tra có thư viện; thiếu thì rơi về OCR
@@ -144,7 +153,7 @@ def read_pages(data: bytes) -> list[dict[str, Any]]:
         for i in range(len(pdf)):
             page = pdf[i]
             try:
-                lines = _page_lines(page)
+                lines = _page_lines(page, (crops or {}).get(i))
             except Exception:  # noqa: BLE001 — một trang hỏng không được chặn cả tệp
                 lines = []
             text = "\n".join(ln["text"] for ln in lines)
@@ -182,13 +191,14 @@ def trusted(page: dict[str, Any]) -> bool:
     return junk is None or junk <= float(settings.ocr_text_layer_max_junk)
 
 
-def plan(data: bytes) -> dict[str, Any]:
+def plan(data: bytes, crops: dict[int, tuple[float, float, float, float]] | None = None,
+         ) -> dict[str, Any]:
     """Chia trang thành hai nhóm: đọc thẳng và phải OCR.
 
     Trả `{"pages": [...], "from_text": [chỉ số], "need_ocr": [chỉ số], "total": n}`.
     Không đọc được lớp văn bản -> `pages` rỗng và `need_ocr` cũng rỗng: nơi gọi hiểu là
     "không biết gì" và quay về đường OCR toàn bộ như trước."""
-    pages = read_pages(data) if settings.ocr_text_layer else []
+    pages = read_pages(data, crops) if settings.ocr_text_layer else []
     if not pages:
         return {"pages": [], "from_text": [], "need_ocr": [], "total": 0}
     from_text = [p["index"] for p in pages if trusted(p)]

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { getReminders, getStats } from "../api/client";
-import type { ExpiringContract, StatsResponse } from "../types";
-import { AppShell, Spinner } from "../components/Layout";
+import { getStats } from "../api/client";
+import type { AccuracyMetrics, StatsResponse } from "../types";
+import { AppShell, PageHeader, Spinner } from "../components/Layout";
 import { CARD, badgeCls } from "../ui";
-import { useCatLabel, useT } from "../i18n";
+import { useT } from "../i18n";
 
 const TH = "border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-[13px] font-semibold text-slate-700";
 const TD = "border-b border-slate-200 px-3 py-2.5 align-middle text-[13px]";
@@ -21,23 +21,52 @@ function Bar({ pass, fail, supp }: { pass: number; fail: number; supp: number })
   );
 }
 
+/** Bảy chỉ số chất lượng đọc theo đúng thứ tự hiển thị. CER/WER: THẤP là tốt. */
+// Tên cột qua i18n (`db.col.<key>`) — tên chuẩn ngành (CER, WER…) vẫn nằm trong chú thích di chuột.
+const ACC_COLS: { key: keyof AccuracyMetrics; lowerBetter?: boolean }[] = [
+  { key: "cer", lowerBetter: true },
+  { key: "wer", lowerBetter: true },
+  { key: "ocr_accuracy" },
+  { key: "field_accuracy" },
+  { key: "table_accuracy" },
+  { key: "number_accuracy" },
+  { key: "date_accuracy" },
+];
+
+function pct(v: number | null | undefined): string {
+  return typeof v === "number" ? `${(v * 100).toFixed(1)}%` : "—";
+}
+
+/** Màu theo ngưỡng: tốt (>= 95% / lỗi <= 5%) xanh, trung bình cam, kém đỏ. */
+function tone(v: number | null | undefined, lowerBetter?: boolean): string {
+  if (typeof v !== "number") return "text-slate-400";
+  const good = lowerBetter ? v <= 0.05 : v >= 0.95;
+  const ok = lowerBetter ? v <= 0.15 : v >= 0.85;
+  return good ? "text-green-700" : ok ? "text-orange-600" : "text-red-700";
+}
+
+function AccCells({ a }: { a?: AccuracyMetrics }) {
+  return (
+    <>
+      {ACC_COLS.map((c) => (
+        <td key={c.key} className={TD + " text-center font-mono font-semibold " + tone(a?.[c.key] as number | null, c.lowerBetter)}>
+          {pct(a?.[c.key] as number | null)}
+        </td>
+      ))}
+    </>
+  );
+}
+
 export default function Dashboard() {
   const t = useT();
-  // Danh mục do backend gửi dạng "English (Tiếng Việt)" — hiện ĐÚNG bản của ngôn
-  // ngữ đang chọn, khớp trang 1/2/3. In cả hai bản ("Japan (Nhật Bản)") là bắt
-  // người đọc tự lọc bản của mình ở mọi dòng bảng.
-  const cat = useCatLabel();
   const [data, setData] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  // Hậu kiểm (Tầng 3.3): hợp đồng sắp hết hạn trong 90 ngày.
-  const [expiring, setExpiring] = useState<ExpiringContract[]>([]);
 
   useEffect(() => {
     getStats()
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-    getReminders(90).then((d) => setExpiring(d.expiring || [])).catch(() => {});
   }, []);
 
   if (loading) {
@@ -52,15 +81,17 @@ export default function Dashboard() {
 
   // `t` là hàm dịch (useT) — số liệu tổng dùng tên riêng `totals` để không trùng tên.
   const totals = data?.totals;
-  const markets = Object.entries(data?.by_market || {}).sort((a, b) => b[1].total - a[1].total);
+  const groups = Object.entries(data?.by_field_set || {}).sort((a, b) => b[1].total - a[1].total);
+  const accGroups = groups.filter(([, s]) => (s.accuracy?.runs ?? 0) > 0);
+  const runs = data?.runs || [];
 
   return (
     <AppShell>
+      <PageHeader title={t("db.title")} desc={t("db.lead")} />
       <div className={CARD + " mb-4"}>
         {/* Xóa lịch sử thống kê CHỈ còn ở `npm run clear` (chạy khi bảo trì), không
             có nút trên giao diện: đây là thao tác không hoàn tác được trên dữ liệu
             của cả hệ, không nên đặt cách một cú bấm ngay cạnh số liệu. */}
-        <h2 className="m-0 text-lg font-bold">{t("db.title")}</h2>
         {/* CẦN BỔ SUNG đứng cùng hàng với Hợp lệ / Không hợp lệ: thiếu nó thì ba con
             số không cộng lại thành Tổng tài liệu (0 + 2 ≠ 3) và người đọc phải tự
             đoán phần chênh nằm ở đâu. */}
@@ -73,50 +104,21 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {expiring.length ? (
-        <div className={CARD + " mb-4 border-amber-200 bg-amber-50/50"}>
-          <h3 className="m-0 mb-2 text-base font-bold">{t("db.expiring")}</h3>
-          <table className="w-full border-collapse">
-            <thead>
-              <tr>
-                <th className={TH}>{t("common.market")} / {t("common.jobType")}</th>
-                <th className={TH + " w-32"}>{t("db.signedDate")}</th>
-                <th className={TH + " w-32"}>{t("db.expiry")}</th>
-                <th className={TH + " w-28"}>{t("db.remaining")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {expiring.map((e) => (
-                <tr key={e.session_id}>
-                  <td className={TD}>
-                    <div className="font-medium text-slate-800">{cat(e.market_name || "") || "—"}</div>
-                    <div className="text-slate-500">{cat(e.job_type_name || "") || "—"}</div>
-                  </td>
-                  <td className={TD}>{e.signed_date}</td>
-                  <td className={TD + " font-semibold text-amber-700"}>{e.expires_on}</td>
-                  <td className={TD}>{e.days_left} {t("db.days")}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-
       <div className={CARD}>
-        <h3 className="m-0 mb-2 text-base font-bold">{t("db.byMarket")}</h3>
+        <h3 className="m-0 mb-2 text-base font-bold">{t("db.byFieldSet")}</h3>
         <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-slate-600">
-          <span>{t("db.byMarketNote")}</span>
+          <span>{t("db.byFieldSetNote")}</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-green-500" /> {t("verdict.PASS")}</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-red-500" /> {t("common.invalid")}</span>
           <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-orange-400" /> {t("verdict.NEEDS_SUPPLEMENT")}</span>
         </div>
-        {markets.length === 0 ? (
+        {groups.length === 0 ? (
           <div className="text-sm text-slate-500">{t("db.empty")}</div>
         ) : (
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                <th className={TH}>{t("common.market")}</th>
+                <th className={TH}>{t("common.fieldSet")}</th>
                 <th className={TH + " w-48"}>{t("db.ratio")}</th>
                 {/* MÃ TRẠNG THÁI thô ('PASS', 'FAIL') đứng cạnh hai cột đã dịch
                     ('Cần bổ sung', 'Tổng') làm bảng nói hai thứ tiếng cùng lúc —
@@ -129,9 +131,9 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {markets.map(([name, s]) => (
+              {groups.map(([name, s]) => (
                 <tr key={name}>
-                  <td className={TD + " font-medium text-slate-800"}>{cat(name)}</td>
+                  <td className={TD + " font-medium text-slate-800"}>{name}</td>
                   <td className={TD}><Bar pass={s.PASS} fail={s.FAIL} supp={s.NEEDS_SUPPLEMENT} /></td>
                   <td className={TD + " text-center"}><span className={badgeCls("PASS")}>{s.PASS}</span></td>
                   <td className={TD + " text-center"}><span className={badgeCls("FAIL")}>{s.FAIL}</span></td>
@@ -141,6 +143,80 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+
+      {/* CHỈ SỐ CHẤT LƯỢNG ĐỌC & TRÍCH XUẤT — tính sau mỗi lượt kiểm tra một bộ hồ sơ. */}
+      <div className={CARD + " mt-4"}>
+        <h3 className="m-0 mb-1 text-base font-bold">{t("db.accTitle")}</h3>
+        <p className="m-0 mb-3 text-xs leading-snug text-slate-500">{t("db.accNote")}</p>
+        {!runs.length ? (
+          <div className="text-sm text-slate-500">{t("db.accEmpty")}</div>
+        ) : (
+          <>
+            <div className="mb-4 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4 lg:grid-cols-7">
+              {ACC_COLS.map((c) => (
+                <div key={c.key} className="rounded-lg border border-slate-200 px-3 py-2" title={t(`db.acc.${c.key}`)}>
+                  <div className="text-slate-500">{t(`db.col.${c.key}`)}</div>
+                  <div className={"text-xl font-bold " + tone(data?.accuracy?.[c.key] as number | null, c.lowerBetter)}>
+                    {pct(data?.accuracy?.[c.key] as number | null)}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className={TH}>{t("common.fieldSet")}</th>
+                    <th className={TH + " w-20 text-center"}>{t("db.accRuns")}</th>
+                    {ACC_COLS.map((c) => <th key={c.key} className={TH + " text-center"} title={t(`db.acc.${c.key}`)}>{t(`db.col.${c.key}`)}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {accGroups.map(([name, s]) => (
+                    <tr key={name}>
+                      <td className={TD + " font-medium text-slate-800"}>{name}</td>
+                      <td className={TD + " text-center"}>{s.accuracy?.runs ?? 0}</td>
+                      <AccCells a={s.accuracy} />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <h4 className="m-0 mb-2 mt-5 text-sm font-bold">{t("db.accPerRun")}</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1100px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className={TH + " w-36"}>{t("db.accTime")}</th>
+                    <th className={TH}>{t("db.accDossier")}</th>
+                    <th className={TH + " w-24 text-center"}>{t("db.accEdited")}</th>
+                    {ACC_COLS.map((c) => <th key={c.key} className={TH + " text-center"} title={t(`db.acc.${c.key}`)}>{t(`db.col.${c.key}`)}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {runs.map((r, i) => (
+                    <tr key={r.session_id + r.ts + i}>
+                      <td className={TD + " whitespace-nowrap text-slate-600"}>{r.ts.replace("T", " ").slice(0, 16)}</td>
+                      <td className={TD}>
+                        <div className="font-medium text-slate-800">{r.field_set_name}</div>
+                        <div className="max-w-[320px] truncate text-xs text-slate-500" title={r.source_files.join(", ")}>
+                          {r.source_files.join(", ")}
+                        </div>
+                      </td>
+                      <td className={TD + " text-center"}>
+                        {r.accuracy.fields_edited ?? 0}/{r.accuracy.fields ?? 0}
+                      </td>
+                      <AccCells a={r.accuracy} />
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </AppShell>

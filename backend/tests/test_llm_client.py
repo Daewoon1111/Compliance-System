@@ -83,7 +83,7 @@ def test_khong_ket_noi_duoc_va_het_gio_cho_noi_hai_cau_khac_nhau(monkeypatch, no
     """Ollama chưa chạy và model sinh chữ quá lâu đòi hai cách xử lý ngược nhau."""
     c = llm.OllamaClient(models="m1", base_url="http://x")
     _patch_http(monkeypatch, [httpx.ConnectError("x"), httpx.ConnectError("x")])
-    with pytest.raises(llm.LLMRateLimitError, match="Ollama"):
+    with pytest.raises(llm.LLMRateLimitError, match="chưa chạy"):
         _run(c)
 
     # HẾT GIỜ CHỜ KHÔNG thử lại: model chậm thì lần hai cũng chậm, mà người dùng phải

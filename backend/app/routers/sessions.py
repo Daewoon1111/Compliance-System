@@ -18,22 +18,21 @@ import os
 from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 
 from app.core import ValidateRequest
-from app.domain.compliance.quality import SIGNED_DATE_FIELD, signed_date_of
+from app.domain.compliance.accuracy import run_accuracy
+from app.domain.compliance.quality import signed_date_field_of, signed_date_of
 from app.domain.compliance.report import (
     build_report,
     job_prompt_of,
     merge_for_check,
     request_signature,
 )
-from app.domain.compliance.validation import (
-    duration_to_months,
-    prefetch_market_regulations,
-)
+from app.domain.compliance.validation import prefetch_field_set_regulations
 from app.domain.documents.enrich import money_keys, typed_keys
 from app.domain.documents.intake import (
     SelectionError,
     build_documents,
     cache_key_of,
+    parse_regions,
     resolve_selection,
     summarize,
 )
@@ -47,6 +46,7 @@ from app.store import (
     cache_save,
     checks_config_ok,
     ensure_dir,
+    get_active_field_set,
     get_paths,
     key_lock,
     make_session_id,
@@ -54,7 +54,7 @@ from app.store import (
     record_run,
     write_json,
 )
-from app.store.config import _load_checks
+from app.store.config import _load_checks, field_value_type
 
 router = APIRouter(prefix="/api/v1", tags=["sessions"])
 
@@ -113,21 +113,17 @@ def _spawn_background(coro) -> None:
 @router.post("/sessions")
 async def create_session(
     files: list[UploadFile] = File(...),
-    job_id: str = Form(""),
-    market: str = Form(""),
-    country: str = Form(""),
-    job_type: str = Form(""),
-    market_other: str = Form(""),
-    job_type_other: str = Form(""),
+    field_set: str = Form(""),
     progress_id: str = Form(""),   # client tự sinh, mở SSE /progress/{id} trước khi POST
+    regions: str = Form(""),       # vùng cần kiểm tra (JSON, theo thứ tự file) — xem parse_regions
 ):
-    """Tạo phiên: nhận PDF -> OCR -> trích xuất -> trả tóm tắt cho trang soát.
+    """Tạo phiên: nhận PDF + bộ trường -> OCR -> trích xuất -> trả tóm tắt cho trang soát.
 
     Ba việc chạy CHỒNG LẤN nhau để giấu thời gian chờ: OCR trong thread (event loop
     rảnh đẩy SSE tiến độ), nạp trước RAG chạy nền, warm-up model kiểm tra bắt đầu ngay
     khi trích xuất xong.
 
-    Cùng một tập file + cùng lựa chọn đã xử lý xong -> TRẢ LẠI phiên cũ, không OCR lại.
+    Cùng một tập file + cùng bộ trường đã xử lý xong -> TRẢ LẠI phiên cũ, không OCR lại.
     """
     if not files:
         raise HTTPException(status_code=400, detail="Hãy tải lên ít nhất 1 file PDF.")
@@ -135,8 +131,9 @@ async def create_session(
         raise HTTPException(status_code=413,
                             detail=f"Mỗi lượt chỉ nhận tối đa {MAX_FILES} file.")
     try:
-        sel = resolve_selection(job_id, market, country, job_type,
-                                market_other, job_type_other)
+        # Không gửi bộ kiểm tra -> dùng BỘ KIỂM TRA ĐANG DÙNG (trang Kiểm tra không còn ô chọn).
+        sel = resolve_selection(field_set or get_active_field_set())
+        region_list = parse_regions(regions, len(files))
     except SelectionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -146,7 +143,7 @@ async def create_session(
         data = await _read_capped(f, con_lai)
         con_lai -= len(data)
         datas.append(data)
-    cache_key = cache_key_of(datas, sel)
+    cache_key = cache_key_of(datas, sel, region_list)
 
     # Tái dùng nếu ĐÚNG tập file + lựa chọn này đã xử lý xong (có documents.json).
     cached_sid = cache_lookup(cache_key)
@@ -164,17 +161,13 @@ async def create_session(
     named = [(f.filename or f"input_{i + 1}.pdf", d)
              for i, (f, d) in enumerate(zip(files, datas, strict=True))]
 
-    # CHỒNG LẤN CÔNG ĐOẠN: bước RAG chỉ cần [nhãn trường + thị trường] — đã biết đủ
+    # CHỒNG LẤN CÔNG ĐOẠN: bước RAG chỉ cần [loại hồ sơ + nhãn trường] — đã biết đủ
     # ngay tại đây — nên nạp trước embedding/reranker/collection NGAY BÂY GIỜ, chạy
-    # song song với OCR ở dòng dưới thay vì đứng xếp hàng sau nó. Đây là việc thuần
-    # CPU và chỉ chạy một lần cho mỗi thị trường, nên thời gian của nó bị OCR che hết.
-    # Chạy nền qua `_spawn_background` (không chặn coroutine, giữ tham chiếu task).
-    _mkt = " ".join(p for p in (sel.market_name, sel.job_type_name) if p).strip()
-    _spawn_background(asyncio.to_thread(
-        prefetch_market_regulations, sel.job_prompt, _mkt or sel.market_name))
+    # song song với OCR ở dòng dưới thay vì đứng xếp hàng sau nó.
+    _spawn_background(asyncio.to_thread(prefetch_field_set_regulations, sel.job_prompt))
 
     try:
-        documents, dossier = await build_documents(session_id, named, sel, progress_id)
+        documents = await build_documents(session_id, named, sel, progress_id, region_list)
     except DocumentTooLargeError as exc:
         progress_update(progress_id, "error", note=str(exc))
         raise HTTPException(status_code=413, detail=str(exc)) from exc
@@ -192,7 +185,7 @@ async def create_session(
             status_code=500,
             detail="Không đọc được hồ sơ. Kiểm tra các file có phải PDF hợp lệ không, "
                    "rồi thử lại. Chi tiết kỹ thuật đã ghi vào log server.") from exc
-    write_json(paths.documents_json, {"documents": documents, "dossier": dossier})
+    write_json(paths.documents_json, {"documents": documents})
     cache_save(cache_key, session_id)
     progress_update(progress_id, "done")
     return summarize(documents)
@@ -215,20 +208,20 @@ def get_session_documents(session_id: str):
             "missing_fields": d.get("missing_fields", []),
         }
         for d in prev.get("documents", [])
-    ], "dossier": prev.get("dossier", {})}
+    ]}
 
 
 _MAX_TEXT_VALUE = 2000
 
 
-def _manual_value(key: str, val):
+def _manual_value(key: str, val, fields_catalog: dict):
     """Giá trị người duyệt nhập -> đúng KIỂU của trường; sai kiểu -> HTTP 400.
 
     Giá trị này được coi là ĐÚNG (conf 1.0) và đi thẳng vào bước kiểm tra, nên không
     được nhận dict/list tùy ý hay chuỗi dài vô hạn."""
     if val in (None, ""):
         return None
-    number_keys, date_keys = typed_keys()
+    number_keys, date_keys = typed_keys(fields_catalog)
     bad = HTTPException(status_code=400, detail=f"Giá trị của '{key}' không đúng kiểu.")
     if key in date_keys:
         if not (iso := normalize_signed_date(val)):
@@ -245,7 +238,7 @@ def _manual_value(key: str, val):
         if not 0 <= n <= 1_000_000:
             raise bad
         return n
-    if key in money_keys():
+    if key in money_keys(fields_catalog):
         if isinstance(val, (int, float)) and not isinstance(val, bool):
             val = {"amount": val}
         if isinstance(val, str):
@@ -279,17 +272,12 @@ def patch_document_fields(session_id: str, doc_id: str, body: dict = Body(...)):
 
 
 def _patch_fields(session_id: str, doc_id: str, body: dict):
-    """SỬA TAY giá trị trích xuất trên trang review (Tầng 2.1) rồi 'kiểm tra lại'.
+    """SỬA TAY giá trị trích xuất trên trang soát rồi 'kiểm tra lại'.
 
     body: {"fields": {field_key: value | null}} — null/"" = xóa giá trị. Giá trị
     người dùng nhập được coi là ĐÚNG (confidence 1.0, source USER_EDIT, xóa cờ chặn
     của trường đó). Sau khi sửa: XÓA final_report cache để lần validate sau chạy lại
-    trên dữ liệu mới.
-
-    Khóa ĐẶC BIỆT `__contract_duration` không nằm trong fields_catalog mà thuộc
-    contract_meta (thời hạn hợp đồng — suy ra từ toàn văn, dùng để đối chiếu ngưỡng
-    phụ thuộc thời hạn). Cho sửa tay ở đây để người duyệt chữa được khi OCR đọc trượt,
-    thay vì phải chấp nhận ô trống."""
+    trên dữ liệu mới."""
     fields = body.get("fields")
     if not isinstance(fields, dict) or not fields:
         raise HTTPException(status_code=400, detail="Thiếu 'fields' cần sửa.")
@@ -303,6 +291,11 @@ def _patch_fields(session_id: str, doc_id: str, body: dict):
 
     contract = doc.get("contract") or {}
     ef = contract.setdefault("extracted_fields", {})
+    # KIỂU của từng trường lấy từ chính khung đã trích (value_type gắn lúc trích xuất),
+    # không nạp lại bộ trường: bộ trường có thể đã bị sửa/xóa sau khi tải hồ sơ lên.
+    fc_types = {k: {"value_type": (f or {}).get("value_type")
+                    or field_value_type(f or {})} for k, f in ef.items()}
+    sd_key = signed_date_field_of(contract)
     missing = set(contract.get("missing_fields") or [])
     changed: list[str] = []
     # Trường HỢP LỆ nhưng giá trị KHÔNG đổi. Tách khỏi `changed` vì hai việc khác nhau:
@@ -312,25 +305,15 @@ def _patch_fields(session_id: str, doc_id: str, body: dict):
     # LLM từ đầu cho một thay đổi không tồn tại.
     accepted: list[str] = []
     for key, val in fields.items():
-        if key == "__contract_duration":
-            cm = contract.setdefault("contract_meta", {})
-            _new_dur = "" if val in (None, "") else str(val).strip()
-            accepted.append(key)
-            if _new_dur == str(cm.get("contract_duration") or ""):
-                continue
-            cm["contract_duration"] = _new_dur
-            cm["contract_duration_months"] = duration_to_months(cm["contract_duration"])
-            changed.append(key)
-            continue
         if key not in ef:
             continue  # chỉ cho sửa trường có trong catalog của phiên
         # NẮN KIỂU NGAY TẠI CỬA (ngày -> ISO, số, tiền, chuỗi có trần). Ngày ký còn là
         # mốc lọc hiệu lực văn bản: "01/03/2025" để nguyên thành mốc 1032025.
-        if key == SIGNED_DATE_FIELD and val not in (None, "") and not normalize_signed_date(val):
+        if key == sd_key and val not in (None, "") and not normalize_signed_date(val):
             raise HTTPException(status_code=400, detail=(
                 "Ngày ký không đọc được. Hãy nhập dạng NGÀY/THÁNG/NĂM "
                 "(vd 01/03/2025) hoặc 2025-03-01."))
-        val = _manual_value(key, val)
+        val = _manual_value(key, val, fc_types)
         entry = ef.get(key) or {}
         accepted.append(key)
         # Giá trị y hệt giá trị đang lưu -> không đụng gì. So SAU khi đã nắn ngày ký về
@@ -339,6 +322,9 @@ def _patch_fields(session_id: str, doc_id: str, body: dict):
         _new_val = None if val in (None, "") else val
         if entry.get("value") == _new_val:
             continue
+        # Giữ GIÁ TRỊ MÁY ĐỌC (một lần, lúc sửa đầu tiên): chỉ số CER/WER/độ chính xác
+        # trường ở trang Thống kê so giá trị máy với giá trị người duyệt chốt.
+        entry.setdefault("machine", {"value": entry.get("value")})
         if val in (None, ""):
             entry.update({"value": None, "confidence": 0.0,
                           "evidence": {"short_quote": None, "source": None}})
@@ -353,27 +339,18 @@ def _patch_fields(session_id: str, doc_id: str, body: dict):
                 if not (f.get("field") == key and f.get("block_field"))
             ]
         ef[key] = entry
-        # THỜI HẠN HỢP ĐỒNG có HAI chỗ đọc: trường catalog (người duyệt nhìn/sửa) và
-        # contract_meta (LLM dùng để đối chiếu ngưỡng phụ thuộc thời hạn). Sửa trường
-        # thì đồng bộ luôn contract_meta, nếu không lượt kiểm tra sau vẫn chạy trên
-        # con số cũ mà màn hình đã hiện con số mới.
-        if key == "thoi_han_hop_dong":
-            cm = contract.setdefault("contract_meta", {})
-            cm["contract_duration"] = "" if val in (None, "") else str(val).strip()
-            cm["contract_duration_months"] = duration_to_months(cm["contract_duration"])
-        # NGÀY KÝ cũng có HAI chỗ đọc, và đây là chỗ QUAN TRỌNG NHẤT: bước kiểm tra
-        # đọc ngày ký ở `derived.signed_date` / `contract_meta.signed_date` chứ KHÔNG
-        # đọc trường catalog, rồi dùng nó lọc phiên bản luật còn hiệu lực lúc ký.
-        # Không đồng bộ thì người duyệt sửa ngày ký xong, màn hình hiện ngày mới còn
-        # bộ lọc quy định vẫn chạy trên ngày cũ (hoặc trên mốc dự phòng) — sai cả bộ
-        # căn cứ pháp lý mà không có dấu hiệu nào.
-        if key == SIGNED_DATE_FIELD:
+        # NGÀY KÝ có HAI chỗ đọc: trường của bộ trường và `derived.signed_date`. Đồng bộ
+        # cả hai, nếu không màn hình hiện ngày mới còn bộ lọc quy định vẫn chạy trên
+        # ngày cũ — sai cả bộ căn cứ mà không có dấu hiệu nào.
+        if key == sd_key:
             iso = "" if val in (None, "") else str(val)
-            cm = contract.setdefault("contract_meta", {})
-            cm["signed_date"] = iso
             contract.setdefault("derived", {})["signed_date"] = {
                 "value": iso or None, "confidence": 1.0 if iso else 0.0,
-                "from_field": SIGNED_DATE_FIELD if iso else None}
+                "from_field": sd_key if iso else None}
+            if iso:
+                contract["input_flags"] = [
+                    f for f in (contract.get("input_flags") or [])
+                    if not str(f.get("code", "")).startswith("SIGNED_DATE")]
         changed.append(key)
     if not accepted:
         raise HTTPException(status_code=400, detail="Không có trường hợp lệ nào để sửa.")
@@ -395,11 +372,11 @@ def _patch_fields(session_id: str, doc_id: str, body: dict):
 
 @router.post("/sessions/{session_id}/validate")
 async def validate_session(session_id: str, req: ValidateRequest):
-    """BƯỚC KIỂM TRA: gộp tài liệu -> truy hồi quy định (RAG) -> LLM đối chiếu -> báo cáo.
+    """BƯỚC KIỂM TRA: gộp tài liệu -> truy hồi quy định (RAG) -> mô hình đối chiếu -> báo cáo.
 
-    Nhận danh sách trường người dùng CHỌN kiểm tra (`documents[]` cho client mới,
-    `selected_fields` cho client cũ). Ngày ký KHÔNG nhận ở đây: sửa nó bằng PATCH
-    trường `ngay_ky_hop_dong` trên trang soát — một đường duy nhất.
+    Nhận danh sách trường người dùng CHỌN kiểm tra (`documents[]` hoặc
+    `selected_fields`). Ngày ký KHÔNG nhận ở đây: sửa nó bằng PATCH trường ngày ký của
+    bộ trường trên trang soát — một đường duy nhất.
 
     Mã lỗi phân biệt rõ nguồn gốc để người dùng biết phải làm gì:
       · 503 — Ollama quá tải / chưa pull model (thử lại hoặc pull);
@@ -410,15 +387,15 @@ async def validate_session(session_id: str, req: ValidateRequest):
         raise HTTPException(status_code=404, detail="Không tìm thấy phiên làm việc — "
                             "có thể đã bị xóa. Vui lòng tải hồ sơ lên lại.")
     if not checks_config_ok():
-        # checks.json hỏng = mất sạch kiểm tra tất định + danh mục khoản thu cấm. Kết luận
-        # ra trong tình trạng đó là kết luận thiếu căn cứ -> từ chối chạy.
+        # checks.json hỏng = mất cổng chất lượng + kiểm tra tất định. Kết luận ra trong
+        # tình trạng đó là kết luận thiếu kiểm soát -> từ chối chạy.
         raise HTTPException(status_code=503, detail=(
             "Cấu hình kiểm tra (prompts/services/checks.json) thiếu hoặc hỏng. "
             "Sửa tệp rồi khởi động lại backend."))
     with open(paths.documents_json, "rb") as fh:
         docs_bytes = fh.read()
     store = json.loads(docs_bytes.decode("utf-8"))
-    all_docs, dossier = store.get("documents", []), store.get("dossier", {})
+    all_docs = store.get("documents", [])
     # KHÓA SSE RIÊNG CHO LƯỢT NÀY (client cũ không gửi -> lui về session_id). Dùng
     # session_id làm khóa thì mốc "done" của lượt trước còn sống 1 giờ trong registry,
     # và client mở SSE trước khi POST tới nơi nên lượt "Kiểm tra lại" đọc ngay mốc cũ
@@ -432,8 +409,9 @@ async def validate_session(session_id: str, req: ValidateRequest):
     try:
         job_prompt = job_prompt_of(doc["contract"])
     except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail="Loại công việc không hợp lệ. "
-                            "Vui lòng chọn lại thị trường và loại hình lao động.") from exc
+        raise HTTPException(status_code=400, detail=(
+            "Bộ trường của phiên này không còn tồn tại (có thể đã bị xóa). "
+            "Hãy tải hồ sơ lên lại với một bộ trường khác.")) from exc
     # Client mới gửi 'documents' (chọn trường theo từng file), client cũ chỉ gửi
     # 'selected_fields'. Sau khi gộp chỉ còn MỘT tài liệu nên hợp nhất thành 1 tập.
     selected = set(req.selected_fields or [])
@@ -465,17 +443,16 @@ async def validate_session(session_id: str, req: ValidateRequest):
         # nhiều phút. Thời gian tổng không đổi nhưng người chờ biết máy còn sống.
         name, _, arg = step.partition(":")
         notes = {
-            "rag": "Đang tìm các quy định pháp luật liên quan…",
-            "llm": (f"Đang đối chiếu {arg} trường với quy định pháp luật…" if arg
-                    else "Đang đối chiếu hồ sơ với quy định pháp luật…"),
-            "reconcile": "Đang tổng hợp kết luận theo từng nhóm…",
+            "rag": "Đang tìm các quy định liên quan…",
+            "llm": (f"Đang đối chiếu {arg} trường với quy định…" if arg
+                    else "Đang đối chiếu hồ sơ với quy định…"),
+            "reconcile": "Đang tổng hợp kết luận…",
         }
         progress_update(pid, "validate", step=name, note=notes.get(name, step))
 
     progress_update(pid, "validate", step="start", note="Chuẩn bị dữ liệu kiểm tra…")
     try:
-        report = await build_report(doc, job_prompt, sorted(selected), dossier, req_sig,
-                                    _on_progress)
+        report = await build_report(doc, job_prompt, sorted(selected), req_sig, _on_progress)
     except LLMRateLimitError as exc:
         # Ollama không phản hồi / quá tải (timeout, 5xx, chưa chạy `ollama serve`).
         print(f"[validate] 503 — Ollama không phản hồi/quá tải: {exc}")
@@ -498,6 +475,7 @@ async def validate_session(session_id: str, req: ValidateRequest):
         progress_update(pid, "error", note=msg)
         raise HTTPException(status_code=502, detail=msg) from exc
 
+    report["source_files"] = [str(d.get("source_file") or "") for d in all_docs]
     with key_lock(f"session:{session_id}"):
         # Hồ sơ đã bị sửa trong lúc đối chiếu -> báo cáo này dựng trên dữ liệu cũ: vẫn trả
         # về cho lượt gọi nhưng KHÔNG lưu đè, lượt "Kiểm tra lại" sau sẽ chạy trên bản mới.
@@ -507,31 +485,22 @@ async def validate_session(session_id: str, req: ValidateRequest):
             write_json(paths.final_report_json, report)
     progress_update(pid, "done")
     # Ghi nhật ký + thống kê (record_run tự nuốt lỗi, không chặn luồng trả kết quả).
-    meta = doc["contract"].get("contract_meta", {}) or {}
-    # DUNG LƯỢNG + THỜI GIAN OCR thuộc lượt TẢI LÊN (đã chạy xong từ trước), nên phải
-    # đọc lại từ `all_docs` chứ không có trong `metrics` của lượt kiểm tra này.
+    # DUNG LƯỢNG + THỜI GIAN OCR thuộc lượt TẢI LÊN nên đọc lại từ `all_docs`.
     _bytes = sum(int(d.get("size_bytes") or 0) for d in all_docs)
     _ocr_stats = [((d.get("ocr") or {}).get("stats") or {}) for d in all_docs]
-    _pages = sum(int(s.get("num_pages") or 0) for s in _ocr_stats)
-    _ocr_sec = sum(float(s.get("ocr_seconds") or 0.0) for s in _ocr_stats)
     record_run(
         session_id=session_id,
-        market_id=meta.get("market_id", ""),
-        market_name=report["market_name"],
-        job_type_name=report["job_type_name"],
+        field_set_id=report.get("field_set_id", ""),
+        field_set_name=report.get("field_set_name", ""),
         documents=report["documents"],
-        # NGÀY KÝ ĐÃ DÙNG để lọc quy định, không phải khóa `contract_meta.signed_date`
-        # (khóa đó CHỈ được ghi khi người duyệt sửa tay ngày ký). Đọc nhầm chỗ thì mọi
-        # hồ sơ không sửa tay đều vào nhật ký với ngày ký RỖNG, và phần nhắc hạn hợp
-        # đồng — vốn tính từ ngày ký + thời hạn — bỏ qua sạch.
-        signed_date=signed_date or str(meta.get("signed_date") or ""),
-        duration_months=meta.get("contract_duration_months"),
-        country_name=str(meta.get("country_name") or ""),
+        signed_date=signed_date,
         metrics=report.get("metrics"),
         total_bytes=_bytes,
-        total_pages=_pages,
-        ocr_seconds=_ocr_sec,
+        total_pages=sum(int(s.get("num_pages") or 0) for s in _ocr_stats),
+        ocr_seconds=sum(float(s.get("ocr_seconds") or 0.0) for s in _ocr_stats),
         corpus_fingerprint=str((report.get("_meta") or {}).get("corpus_fingerprint") or ""),
+        source_files=report["source_files"],
+        accuracy=run_accuracy(all_docs, (job_prompt or {}).get("fields_catalog")),
     )
     return report
 

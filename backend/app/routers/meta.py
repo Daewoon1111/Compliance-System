@@ -1,4 +1,4 @@
-"""TẦNG API (meta) — health + danh mục jobs/markets + nhận diện vai trò file + chỉnh DPI OCR; không chứa nghiệp vụ."""
+"""TẦNG API (meta) — health + danh sách bộ trường + chỉnh DPI OCR; không chứa nghiệp vụ."""
 from __future__ import annotations
 
 import json
@@ -7,8 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Body, HTTPException
 
 from app.core import settings
-from app.domain.compliance.dossier import classify_role
-from app.store import load_dossier_rules, load_markets
+from app.store import list_field_sets
 
 router = APIRouter(tags=["meta"])
 API = "/api/v1"
@@ -45,10 +44,10 @@ def dpi_bounds() -> tuple[int, int]:
 
 
 def tier_for_dpi(dpi: int) -> dict:
-    """BẬC CHẤT LƯỢNG theo DPI: số ô ảnh Vintern + số đoạn luật gửi cho LLM.
+    """BẬC CHẤT LƯỢNG theo DPI: số ô ảnh Vintern + số đoạn quy định gửi cho LLM.
 
     DPI là NÚT DUY NHẤT người dùng chỉnh, nên ba tham số đi cùng chiều: ảnh nét mà cắt ít
-    ô thì chữ nhỏ vẫn bị co mất, đọc kỹ mà gửi ít đoạn luật thì không đủ căn cứ đối chiếu.
+    ô thì chữ nhỏ vẫn bị co mất, đọc kỹ mà gửi ít đoạn quy định thì không đủ căn cứ đối chiếu.
 
     Bậc chọn theo `dpi < max_dpi`; bậc cuối bao trọn phần còn lại. Bảng ở
     app/data/settings.json > ocr.dpi_tiers."""
@@ -98,37 +97,39 @@ def health():
     return {"status": "ok"}
 
 
-@router.get(API + "/markets")
-def get_markets():
-    """Phân loại thị trường + loại hình lao động cho 2 nút chọn ở trang 1."""
-    return load_markets()
+@router.get(API + "/field-sets")
+def get_field_sets():
+    """Các bộ trường (loại hồ sơ) dùng được — ô chọn ở trang tải lên."""
+    return {"field_sets": list_field_sets()}
 
 
-@router.post(API + "/classify-files")
-def classify_files(body: dict = Body(default={})):
-    """A1 - Nhận diện VAI TRÒ tài liệu theo TÊN FILE (hiển thị ngay ở trang tải lên)."""
-    names = body.get("filenames", []) or []
-    rules = load_dossier_rules()
-    roles_cfg = rules.get("roles") or {}
-    labels = roles_cfg.get("labels") or {}
-    # Bản tiếng Anh đi KÈM trong cùng phản hồi: đổi ngôn ngữ trên giao diện khi đó
-    # không phải gọi lại API, và nhãn vai trò vẫn chỉ khai ở MỘT chỗ (checks.json).
-    labels_en = roles_cfg.get("labels_en") or {}
-    none_vi = roles_cfg.get("unclassified_label") or "Chưa nhận diện"
-    none_en = roles_cfg.get("unclassified_label_en") or none_vi
-    out = [
-        {"filename": n, "role": (r := classify_role(str(n), "", rules)),
-         "label": labels.get(r, none_vi),
-         "label_en": labels_en.get(r) or labels.get(r) or none_en}
-        for n in names
-    ]
-    return {"roles": out}
+@router.get(API + "/settings/active-field-set")
+def get_active():
+    """Bộ kiểm tra đang dùng ở trang Kiểm tra ('' = chưa có bộ nào dùng được)."""
+    from app.store import get_active_field_set  # noqa: PLC0415
+
+    return {"field_set": get_active_field_set()}
+
+
+@router.post(API + "/settings/active-field-set")
+def set_active(body: dict = Body(default={})):
+    """Đổi bộ kiểm tra đang dùng."""
+    from app.store import set_active_field_set  # noqa: PLC0415
+
+    try:
+        return {"field_set": set_active_field_set(str(body.get("field_set") or ""))}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def ocr_dpi_state() -> dict:
+    return _dpi_state(tier_for_dpi(int(settings.ocr_dpi)))
 
 
 @router.get(API + "/settings/ocr-dpi")
 def get_ocr_dpi():
     """DPI hiện hành + biên chỉnh được + bậc chất lượng đang áp (xem `_dpi_state`)."""
-    return _dpi_state(tier_for_dpi(int(settings.ocr_dpi)))
+    return ocr_dpi_state()
 
 
 @router.post(API + "/settings/ocr-dpi")
@@ -139,5 +140,10 @@ def set_ocr_dpi(body: dict = Body(default={})):
     try:
         val = int(body.get("value"))
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="DPI phải là số nguyên.") from exc
-    return apply_dpi(val)
+        raise HTTPException(status_code=400, detail="Độ nét phải là một số nguyên.") from exc
+    out = apply_dpi(val)
+    # NHỚ qua lần mở lại phần mềm (trước đây chỉ sống trong RAM, khởi động lại là mất).
+    from app.store.app_settings import save_dpi  # noqa: PLC0415
+
+    save_dpi(out["value"])
+    return out

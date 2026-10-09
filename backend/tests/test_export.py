@@ -37,19 +37,19 @@ def _bao_cao(tmp_path, report: dict) -> str:
 
 
 BAO_CAO_MAU = {
-    "market_name": "Japan (Nhật Bản)",
-    "country_name": "Japan (Nhật Bản)",
-    "job_type_name": "Lao động kỹ năng đặc định",
-    "contract_duration": "1 năm",
+    "field_set_id": "hop_dong_mau",
+    "field_set_name": "Hợp đồng (mẫu chung)",
+    "document_kind": "hợp đồng",
+    "signed_date": "2026-08-01",
     "overall_verdict": "FAIL",
     "checked_at": "2026-08-10T09:00:00+07:00",
-    "fee_anomalies": ["Chi phí khác: 200.000 VND — ngoài danh mục được phép thu"],
-    "documents": [{"checks": [
-        {"title": "Tiền lương", "field_value": {"amount": 184461, "currency": "JPY",
-                                                "period": "tháng"},
-         "verdict": "PASS", "reason": "Đúng mức đã thỏa thuận"},
-        {"title": "Ký quỹ", "field_value": None, "verdict": "NEEDS_SUPPLEMENT",
-         "reason": "Chưa khai"},
+    "documents": [{"source_file": "hop_dong.pdf", "checks": [
+        {"title": "Giá trị hợp đồng", "field_value": {"amount": 120000000, "currency": "VND"},
+         "verdict": "PASS", "reason": "Ghi rõ số tiền và đơn vị"},
+        {"title": "Thời hạn", "field_value": "12 tháng", "verdict": "FAIL",
+         "reason": "Không ghi ngày kết thúc"},
+        {"title": "Giải quyết tranh chấp", "field_value": None,
+         "verdict": "NEEDS_SUPPLEMENT", "reason": "Chưa khai"},
     ]}],
 }
 

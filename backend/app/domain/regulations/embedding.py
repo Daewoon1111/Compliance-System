@@ -45,7 +45,7 @@ def _init_backend():
 
 
 def backend_name() -> str:
-    """Tên backend embedding đang dùng — vào dấu vân tay kho luật (`corpus`).
+    """Tên backend embedding đang dùng — vào dấu vân tay kho quy định (`corpus`).
 
     Chưa khởi tạo thì trả "" chứ KHÔNG tự nạp model: hàm này bị gọi từ endpoint quản
     trị, nạp một model 1GB chỉ để lấy một chuỗi là cái giá không ai muốn trả."""

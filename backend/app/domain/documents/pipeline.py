@@ -1,4 +1,4 @@
-"""NGHIỆP VỤ ĐỌC HỒ SƠ (pipeline) — điều phối 1 file: đọc (lớp văn bản / Vintern) -> chuẩn hóa -> trích xuất regex + LLM -> cờ chất lượng.
+"""NGHIỆP VỤ ĐỌC HỒ SƠ (pipeline) — điều phối 1 file: đọc (lớp văn bản / Vintern) -> chuẩn hóa -> trích xuất luật + mô hình -> cờ chất lượng.
 
 Đọc ảnh chạy trong thread riêng (blocking, nặng CPU/GPU) để event loop còn rảnh đẩy SSE.
 """
@@ -10,13 +10,8 @@ import time
 from datetime import datetime
 
 from app.core import settings
-from app.domain.compliance.dossier import classify_role
 from app.domain.compliance.quality import compute_input_flags
-from app.domain.compliance.validation import (
-    completeness,
-    duration_to_months,
-    extract_duration,
-)
+from app.domain.compliance.reconcile import completeness
 from app.domain.documents import textlayer
 from app.domain.documents.enrich import merge_llm_extraction, run_llm_extraction
 from app.domain.documents.ocr import (
@@ -27,22 +22,12 @@ from app.domain.documents.ocr import (
     ocr_image_lines,
     render_pages,
 )
-from app.domain.documents.rules import (
-    extract_contract_json,
-    extract_job_title,
-    normalize_text,
-    regex_field_keys,
-)
-from app.domain.documents.spelling import canonicalize_fields, restore_diacritics
+from app.domain.documents.rules import extract_contract_json, normalize_text
+from app.domain.documents.spelling import restore_field_spelling
 from app.llm import LLMRateLimitError
 from app.llm import warmup as llm_warmup
 from app.progress import progress_update
-from app.store import load_dossier_rules
 
-# Đọc CÓ TRỌNG TÂM theo VAI TRÒ: thư yêu cầu tuyển dụng / thư ủy quyền chỉ cần phần
-# điều kiện tuyển dụng — cắt từ cụm đầu tiên khớp, phần trước đó bỏ qua.
-_LETTER_ROLES = {"thu_yeu_cau", "uy_quyen_chu_tau"}
-_LETTER_START_ANCHOR = "điều kiện|yêu cầu tuyển dụng|mức lương|tiền lương"
 # Giữ tham chiếu task nền (asyncio chỉ giữ tham chiếu yếu).
 _BACKGROUND: set[asyncio.Task] = set()
 
@@ -53,7 +38,8 @@ def _page_window(pages: list[dict], start_anchor: str | None) -> tuple[int, int,
     Trang đầu = trang ĐẦU TIÊN chứa neo bắt đầu (lần xuất hiện sau, vd trong phụ lục,
     không được kéo cửa sổ đi). Trang không có lớp văn bản luôn nằm trong cửa sổ."""
     first: int | None = None
-    last, hit_end = len(pages) - 1, False
+    # Chỉ số trang THẬT của trang cuối (danh sách có thể đã bỏ bớt trang người dùng không chọn).
+    last, hit_end = (pages[-1]["index"] if pages else 0), False
     for p in pages:
         if not p["lines"]:
             continue
@@ -65,6 +51,43 @@ def _page_window(pages: list[dict], start_anchor: str | None) -> tuple[int, int,
             break
     first = first or 0
     return first, max(first, last), hit_end
+
+
+Rect = tuple[float, float, float, float]
+
+
+def crop_image(img, rect: Rect | None):
+    """Cắt ảnh trang theo VÙNG CẦN KIỂM TRA (chuẩn hóa 0..1, gốc trên-trái). Không có vùng
+    -> nguyên trang."""
+    if not rect:
+        return img
+    w, h = img.size
+    box = (max(0, int(rect[0] * w)), max(0, int(rect[1] * h)),
+           min(w, int(round(rect[2] * w))), min(h, int(round(rect[3] * h))))
+    if box[2] - box[0] < 8 or box[3] - box[1] < 8:
+        return img
+    return img.crop(box)
+
+
+def _page_count(data: bytes) -> int:
+    from app.domain.documents.ocr.layout import open_pdf  # noqa: PLC0415
+
+    pdf = open_pdf(data)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
+def _restrict(plan: dict, skip: set[int]) -> dict:
+    """Bỏ các trang người dùng KHÔNG tick "quét trang" khỏi kế hoạch đọc."""
+    pages = [p for p in plan["pages"] if p["index"] not in skip]
+    if not pages:
+        return plan
+    keep = {p["index"] for p in pages}
+    return {**plan, "pages": pages,
+            "from_text": [i for i in plan["from_text"] if i in keep],
+            "need_ocr": [i for i in plan["need_ocr"] if i in keep]}
 
 
 def _words(text: str) -> set[str]:
@@ -83,23 +106,33 @@ def text_agreement(layer_text: str, ocr_text: str) -> float:
 def _read_document(
     data: bytes, job_prompt: dict, source_file: str,
     pid: str = "", file_no: int = 0, files_total: int = 0,
-    start_anchor: str | None = None,
+    start_anchor: str | None = None, region: dict | None = None,
 ) -> dict:
-    """Đọc MỘT file: lớp văn bản sạch (đã đối chứng với ảnh) + Vintern cho phần còn lại."""
-    always = list((job_prompt.get("field_check_mode") or {}).get("always_check", []))
-    regex_req = [k for k in always if k in regex_field_keys()] if always else []
+    """Đọc MỘT file: lớp văn bản sạch (đã đối chứng với ảnh) + Vintern cho phần còn lại.
+
+    `region` = VÙNG CẦN KIỂM TRA người dùng khoanh: `{"skip": {trang bỏ qua}, "rects":
+    {trang: (x0, y0, x1, y1)}}` (chuẩn hóa 0..1, gốc trên-trái). Trang bỏ qua không đọc;
+    trang có vùng chỉ đọc phần trong vùng (lớp chữ lọc theo vùng, ảnh cắt theo vùng)."""
+    regex_req = list((job_prompt.get("field_check_mode") or {}).get("always_check", []))
+    skip: set[int] = set((region or {}).get("skip") or ())
+    crops: dict[int, Rect] = dict((region or {}).get("rects") or {})
 
     t_start = time.perf_counter()
-    plan = textlayer.plan(data)
+    plan = textlayer.plan(data, crops or None)
+    if skip and plan["total"]:
+        plan = _restrict(plan, skip)
     verify: dict = {}
     if plan["total"]:
         pages, page_meta, from_text, ocred, verify = _read_hybrid(
-            data, plan, source_file, pid, file_no, files_total, start_anchor)
+            data, plan, source_file, pid, file_no, files_total, start_anchor, crops)
         stopped_early = False
     else:
+        wanted = None
+        if skip:
+            wanted = [i for i in range(_page_count(data)) if i not in skip] or None
         pages, page_meta, stopped_early = _read_ocr_only(
             data, job_prompt, source_file, pid, file_no, files_total, start_anchor,
-            regex_req if settings.ocr_stop_when_enough else [])
+            regex_req if settings.ocr_stop_when_enough else [], crops, wanted)
         from_text, ocred = 0, len(pages)
 
     text_lines = [ln["text"] for pg in pages for ln in pg]
@@ -127,11 +160,14 @@ def _read_document(
             "text_layer_check": verify,
             "ocr_seconds": round(time.perf_counter() - t_start, 1),
             "engine": "hybrid" if from_text else "vintern",
+            "region": ({"pages_skipped": sorted(skip), "pages_cropped": sorted(crops)}
+                       if (skip or crops) else None),
         },
     }
 
 
-def _verify_text_layer(data: bytes, plan: dict, window: list[dict]) -> tuple[dict, dict | None]:
+def _verify_text_layer(data: bytes, plan: dict, window: list[dict],
+                       crops: dict[int, Rect] | None = None) -> tuple[dict, dict | None]:
     """Đối chứng lớp văn bản với ẢNH trên trang tin cậy nhiều chữ nhất trong cửa sổ.
 
     PDF có thể mang chữ ẩn khác chữ in trên trang; tin mù thì hồ sơ bị "đọc" theo nội
@@ -142,7 +178,8 @@ def _verify_text_layer(data: bytes, plan: dict, window: list[dict]) -> tuple[dic
         return {}, None
     page = max(cands, key=lambda p: p["chars"])
     _, img = next(render_pages(data, [page["index"]]))
-    lines, meta = ocr_image_lines(img, with_meta=True)
+    lines, meta = ocr_image_lines(crop_image(img, (crops or {}).get(page["index"])),
+                                  with_meta=True)
     score = text_agreement("\n".join(ln["text"] for ln in page["lines"]),
                            "\n".join(ln["text"] for ln in lines))
     ok = score >= float(settings.ocr_text_layer_min_agreement)
@@ -154,13 +191,13 @@ def _verify_text_layer(data: bytes, plan: dict, window: list[dict]) -> tuple[dic
 
 def _read_hybrid(
     data: bytes, plan: dict, source_file: str, pid: str, file_no: int,
-    files_total: int, start_anchor: str | None,
+    files_total: int, start_anchor: str | None, crops: dict[int, Rect] | None = None,
 ) -> tuple[list, list, int, int, dict]:
     """Trang lớp văn bản sạch đọc thẳng (sau khi đối chứng), trang còn lại đọc bằng Vintern."""
     all_pages = plan["pages"]
     first, last, _hit_end = _page_window(all_pages, start_anchor)
     window = [p for p in all_pages if first <= p["index"] <= last]
-    verify, done = _verify_text_layer(data, plan, window)
+    verify, done = _verify_text_layer(data, plan, window, crops)
     need = set(plan["need_ocr"])
     if verify and not verify["accepted"]:
         need = {p["index"] for p in window}
@@ -173,7 +210,7 @@ def _read_hybrid(
           + (f", cửa sổ trang {first + 1}-{last + 1}" if (first, last) != (0, plan["total"] - 1) else ""))
     progress_update(pid, "ocr", file=file_no, files=files_total, page=0, note=source_file)
     for n, (idx, img) in enumerate(render_pages(data, can_ocr), start=1):
-        done[idx] = ocr_image_lines(img, with_meta=True)
+        done[idx] = ocr_image_lines(crop_image(img, (crops or {}).get(idx)), with_meta=True)
         progress_update(pid, "ocr", file=file_no, files=files_total, page=n, note=source_file)
 
     pages: list = []
@@ -192,15 +229,16 @@ def _read_hybrid(
 def _read_ocr_only(
     data: bytes, job_prompt: dict, source_file: str, pid: str, file_no: int,
     files_total: int, start_anchor: str | None, regex_req: list[str],
+    crops: dict[int, Rect] | None = None, wanted: list[int] | None = None,
 ) -> tuple[list, list, bool]:
     """Tệp không có lớp văn bản: đọc tuần tự từ trang đầu, dừng theo neo hoặc theo trường."""
     pages: list = []
     page_meta: list = []
     text_lines: list[str] = []
     stopped_early = False
-    for idx, img in render_pages(data):
+    for idx, img in render_pages(data, wanted):
         t_page = time.perf_counter()
-        line_objs, meta = ocr_image_lines(img, with_meta=True)
+        line_objs, meta = ocr_image_lines(crop_image(img, (crops or {}).get(idx)), with_meta=True)
         print(f"[ocr] {source_file} — trang {idx + 1}: "
               f"{time.perf_counter() - t_page:.1f}s, {len(line_objs)} dòng")
         pages.append(line_objs)
@@ -216,8 +254,7 @@ def _read_ocr_only(
         if regex_req and found:
             folded, _ = apply_end_anchor(folded)
             norm = normalize_text("\n".join(folded))
-            probe, _ = extract_contract_json("_probe", source_file, norm, norm, "",
-                                             job_prompt=job_prompt)
+            probe, _ = extract_contract_json("_probe", source_file, norm, norm, job_prompt)
             ef = probe.get("extracted_fields", {}) or {}
             if all((ef.get(k) or {}).get("value") for k in regex_req):
                 stopped_early = True
@@ -226,38 +263,31 @@ def _read_ocr_only(
 
 
 async def process_file(
-    session_id: str, data: bytes, filename: str, job_prompt: dict, job_id: str,
-    market: str, market_name: str, job_type: str, job_type_name: str,
-    pid: str = "", file_no: int = 0, files_total: int = 0,
-    country: str = "", country_name: str = "",
-    country_keywords: list[str] | None = None,
-    region: str = "", region_name: str = "",
+    session_id: str, data: bytes, filename: str, job_prompt: dict,
+    pid: str = "", file_no: int = 0, files_total: int = 0, region: dict | None = None,
 ) -> dict:
-    """OCR + trích xuất cho MỘT file -> {doc_id, source_file, ocr, contract, missing_fields}.
+    """OCR + trích xuất cho MỘT file -> {source_file, ocr, contract, missing_fields}.
 
     Đọc ảnh (blocking, nặng CPU/GPU) chạy qua asyncio.to_thread -> event loop rảnh để đẩy SSE."""
     progress_update(pid, "ocr", file=file_no, files=files_total, page=0, note=filename)
-    # Vai trò theo TÊN FILE: thư yêu cầu/ủy quyền -> neo bắt đầu riêng (chỉ lấy từ
-    # đoạn điều kiện tuyển dụng); tài liệu chính giữ neo mặc định.
-    _role = classify_role(filename, "", load_dossier_rules())
-    _anchor = _LETTER_START_ANCHOR if _role in _LETTER_ROLES else None
+    # Neo bắt đầu riêng của bộ trường (vd tiêu đề loại văn bản); trống -> theo cấu hình chung.
+    anchor = job_prompt.get("start_anchor")
     ocr = await asyncio.to_thread(
-        _read_document, data, job_prompt, filename, pid, file_no, files_total, _anchor,
+        _read_document, data, job_prompt, filename, pid, file_no, files_total,
+        anchor if isinstance(anchor, str) and anchor.strip() else None, region,
     )
     progress_update(pid, "extract", file=file_no, files=files_total, note=filename)
     normalized = normalize_text(ocr["full_text"])
     contract_json, _missing = extract_contract_json(
         session_id=session_id, source_file=filename,
-        ocr_text=ocr["full_text"], normalized_text=normalized, job_id=job_id,
-        job_prompt=job_prompt,
+        ocr_text=ocr["full_text"], normalized_text=normalized, job_prompt=job_prompt,
     )
-    # C2 + C1 (không LLM): khôi phục dấu tiếng Việt cho giá trị văn bản rồi chuẩn hóa
-    # theo NGÂN HÀNG CỤM ĐÁP ÁN. Chạy TRƯỚC bước LLM -> LLM chỉ còn phải lo phần
-    # thật sự khó, và trường đã chuẩn hóa không bị đưa đi "sửa chính tả" lần nữa.
-    contract_json = canonicalize_fields(contract_json, job_id, job_type)
+    # Khôi phục dấu tiếng Việt cho giá trị văn bản (không mô hình) TRƯỚC bước mô hình:
+    # trường đã sửa được không bị đưa đi "sửa chính tả" lần nữa.
+    contract_json = restore_field_spelling(contract_json)
     missing_keys = set(contract_json.get("missing_fields", []) or [])
-    # Trường VĂN BẢN đã bắt được bằng regex nhưng giá trị là nguyên văn OCR (hay sai
-    # chính tả/mất dấu) -> gửi kèm cho LLM đọc lại và SỬA CHÍNH TẢ (không đổi nội dung).
+    # Trường VĂN BẢN luật đã bắt được nhưng giá trị là nguyên văn OCR (hay sai chính tả)
+    # -> gửi kèm cho mô hình đọc lại và SỬA CHÍNH TẢ (không đổi nội dung).
     respell_keys = {
         k for k, f in (contract_json.get("extracted_fields") or {}).items()
         if isinstance((f or {}).get("value"), str) and len(f["value"]) >= 6
@@ -268,61 +298,32 @@ async def process_file(
             llm_fields, _raw = await run_llm_extraction(
                 job_prompt, normalized, missing_keys | respell_keys)
             contract_json = merge_llm_extraction(
-                contract_json, llm_fields, respell_keys=respell_keys)
+                contract_json, llm_fields, job_prompt.get("fields_catalog") or {},
+                respell_keys=respell_keys)
         except LLMRateLimitError:
-            contract_json.setdefault("warnings", []).append("LLM bỏ qua: không gọi được Ollama.")
+            contract_json.setdefault("warnings", []).append("Bỏ qua bước mô hình: không gọi được Ollama.")
         except Exception as exc:  # noqa: BLE001
-            contract_json.setdefault("warnings", []).append(f"LLM lỗi: {exc}")
+            contract_json.setdefault("warnings", []).append(f"Bước mô hình lỗi: {exc}")
 
-    # NẠP SẴN model của bước KIỂM TRA ngay khi đọc xong hồ sơ — chạy NGẦM, không chờ.
-    # Hai bước dùng chung một Ollama thì model kiểm tra vừa bị đuổi khỏi RAM lúc trích
-    # xuất; nạp lại ngay bây giờ (trong lúc người dùng còn xem/soát trang 2) để lần
-    # bấm "Kiểm tra" không phải đợi nạp -> hết cảnh chờ quá giờ rồi báo 503.
-    #
-    # CỬA SỔ phải TRÙNG cửa sổ lần gọi thật, nếu không Ollama dựng runner mới và nạp
-    # lại model ngay giữa lượt kiểm tra — warm-up thành vô ích. Ở đây nạp bằng
-    # `validation_num_ctx` (trần), còn lần gọi thật đi qua `fit_num_ctx`, vốn làm tròn
-    # lên BẬC 4096 rồi kẹp theo trần: payload thật của bước kiểm tra (26-31 nghìn ký
-    # tự) luôn vượt trần nên `fit` trả về đúng trần — hai bên trùng nhau.
-    _warm = asyncio.create_task(llm_warmup(
-        settings.validation_model or None, None,
-        settings.validation_num_ctx or None, settings.validation_keep_alive or None))
-    _BACKGROUND.add(_warm)
-    _warm.add_done_callback(lambda t: (_BACKGROUND.discard(t), t.exception()))
+    # NẠP SẴN model của bước KIỂM TRA ngay khi đọc xong hồ sơ — chạy NGẦM, không chờ:
+    # người dùng còn đang soát dữ liệu thì model đã nằm trong RAM. Cửa sổ ngữ cảnh phải
+    # TRÙNG lượt gọi thật, nếu không Ollama nạp lại model ngay giữa lượt kiểm tra.
+    if settings.llm_warmup:
+        _warm = asyncio.create_task(llm_warmup(
+            settings.validation_model or None, None,
+            settings.validation_num_ctx or None, settings.validation_keep_alive or None))
+        _BACKGROUND.add(_warm)
+        _warm.add_done_callback(lambda t: (_BACKGROUND.discard(t), t.exception()))
 
     cm = contract_json.setdefault("contract_meta", {})
     cm["created_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
-    cm["region_id"] = region
-    cm["region_name"] = region_name
-    cm["market_id"] = market
-    cm["market_name"] = market_name
-    cm["country_id"] = country
-    cm["country_name"] = country_name
-    cm["job_type_id"] = job_type
-    cm["job_type_name"] = job_type_name
-    # TÊN CÔNG VIỆC ghi trong hợp đồng ("Nông nghiệp") — hiện cạnh Loại hình công
-    # việc trên thẻ thông tin hồ sơ. Khôi phục dấu ngay vì nó đi thẳng ra màn hình
-    # mà không qua `canonicalize_fields` (hàm đó chỉ nắn `extracted_fields`).
-    if _title := extract_job_title(normalized):
-        cm["job_title"] = restore_diacritics(_title)
-    # THỜI HẠN hợp đồng: trích 1 lần từ OCR, lưu vào contract_meta để (1) hiển thị ở
-    # trang 3 và (2) LLM đối chiếu ngưỡng phụ thuộc thời hạn (Châu Âu/Châu Mỹ...).
-    dur = extract_duration(contract_json)
-    cm["contract_duration"] = dur
-    cm["contract_duration_months"] = duration_to_months(dur)
     contract_json["completeness"] = completeness(job_prompt, contract_json)
-    # KIỂM SOÁT CHẤT LƯỢNG ĐẦU VÀO (Lớp 1/3/4): cổng OCR, ngày ký, đơn vị tiền,
-    # biên độ lương, đối chiếu chéo thị trường. Lưu vào contract để trang 2/3 hiển thị
-    # và để bước kiểm tra hạ NEEDS_SUPPLEMENT các trường đáng ngờ.
+    # KIỂM SOÁT CHẤT LƯỢNG ĐẦU VÀO: cổng OCR + ngày ký. Lưu vào contract để trang soát
+    # và trang kết quả hiển thị, và để bước kiểm tra hạ kết luận của trường đáng ngờ.
     contract_json["input_flags"] = compute_input_flags(
         contract=contract_json,
         ocr_stats=(ocr.get("stats") or {}),
         full_text=ocr.get("full_text", ""),
-        market_id=market,
-        market_name=market_name,
-        normalized_text=normalized,
-        country_keywords=country_keywords,
-        job_type_id=job_type,
     )
     return {
         "source_file": filename,

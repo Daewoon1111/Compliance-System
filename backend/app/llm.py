@@ -210,13 +210,16 @@ class OllamaClient:
         self, model: str, messages: list[dict[str, str]],
         response_format: bool | dict[str, Any], temperature: float | None,
     ) -> str:
+        if model.startswith(OPENROUTER_PREFIX):
+            return await _openrouter_chat(model[len(OPENROUTER_PREFIX):], messages,
+                                          response_format, temperature, self.timeout)
         opts: dict[str, Any] = {}
         if temperature is not None:
             opts["temperature"] = temperature
         # num_ctx đủ lớn -> KHÔNG cắt cụt context dài (payload kiểm tra nhiều chunk luật).
         # Mặc định Ollama chỉ 2048 token nên payload dài bị truncate NGẦM -> kết luận sai.
         # Cắt cụt KHÔNG sinh lỗi: model vẫn trả JSON đúng schema, chỉ là nó chưa đọc
-        # hết đoạn luật — nên đây là loại sai KHÔNG tự lộ ra ở đâu cả.
+        # hết đoạn quy định — nên đây là loại sai KHÔNG tự lộ ra ở đâu cả.
         if self.num_ctx:
             opts["num_ctx"] = self.num_ctx
         npred = int(getattr(settings, "llm_max_output_tokens", 0) or 0)
@@ -255,16 +258,17 @@ class OllamaClient:
                     # (2 × llm_timeout_seconds) trước khi nhận được thông báo.
                     if isinstance(exc, httpx.TimeoutException):
                         metrics.bump("llm.timeout")
+                        print(f"[llm] {model}: quá {int(self.timeout.read or 0)} giây — model có thể "
+                              "đang nạp lại vào RAM; tăng llm_timeout_seconds nếu lặp lại.")
                         raise LLMRateLimitError(
-                            f"Trợ lý AI xử lý quá lâu (> {int(self.timeout.read or 0)} giây) nên đã dừng chờ. "
-                            f"Model '{model}' có thể đang được nạp lại vào bộ nhớ. "
-                            "Hãy thử lại (lần sau sẽ nhanh hơn vì model đã nằm sẵn trong RAM), "
-                            "hoặc tăng llm_timeout_seconds trong backend/.env."
+                            f"Trợ lý AI xử lý quá lâu (hơn {int(self.timeout.read or 0) // 60} phút) "
+                            "nên đã dừng chờ. Hãy bấm thử lại — lần sau thường nhanh hơn."
                         ) from exc
                     if attempt >= self.MAX_RETRIES:
+                        print(f"[llm] Không kết nối được Ollama tại {self.base_url} "
+                              "(mở ứng dụng Ollama hoặc chạy `ollama serve`).")
                         raise LLMRateLimitError(
-                            f"Không kết nối được tới Ollama tại {self.base_url}. "
-                            "Hãy mở ứng dụng Ollama (hoặc chạy lệnh `ollama serve`) rồi thử lại."
+                            "Trợ lý AI chưa chạy. Hãy đóng rồi mở lại phần mềm, sau đó thử lại."
                         ) from exc
                     attempt += 1
                     metrics.bump("llm.retry.transport")
@@ -273,7 +277,8 @@ class OllamaClient:
 
                 if r.status_code == 404:
                     raise LLMModelError(
-                        f"Máy chưa tải mô hình AI '{model}'. Tải bằng lệnh: ollama pull {model}, rồi thử lại."
+                        f"Máy chưa có mô hình AI cần dùng ('{model}'). Hãy nhờ người quản trị "
+                        f"cài đặt (lệnh: ollama pull {model}) rồi thử lại."
                     )
                 if r.status_code >= 500:
                     last_exc = RuntimeError(f"{r.status_code} từ Ollama ({model})")
@@ -327,7 +332,7 @@ class OllamaClient:
                           f"(llm_max_output_tokens) — thường là dấu hiệu model SINH LẶP.")
                 content = ((r.json().get("message") or {}).get("content") or "").strip()
                 if not content:
-                    raise LLMModelError(f"Mô hình AI '{model}' không trả được kết quả. Hãy thử lại hoặc đổi mô hình khác trong cấu hình.")
+                    raise LLMModelError("Trợ lý AI không trả được kết quả. Hãy thử lại sau ít phút.")
                 return content
 
         raise LLMModelError(f"Gọi model {model} thất bại") from last_exc
@@ -336,6 +341,65 @@ class OllamaClient:
 # --------------------------------------------------------------------------
 # Helper dùng chung cho mọi tác vụ LLM
 # --------------------------------------------------------------------------
+# ==========================================================================
+# OPENROUTER — mô hình chạy QUA MẠNG (người dùng tự thêm trên trang Cài đặt).
+# Tên model mang tiền tố "openrouter:"; mọi chỗ khác của hệ thống không cần biết.
+# ==========================================================================
+OPENROUTER_PREFIX = "openrouter:"
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+async def _openrouter_chat(
+    model: str, messages: list[dict[str, str]], response_format: bool | dict[str, Any],
+    temperature: float | None, timeout: httpx.Timeout,
+) -> str:
+    """Một lượt chat qua OpenRouter (giao thức kiểu OpenAI). Trả `content` của câu trả lời.
+
+    Ép JSON: schema -> `json_schema` (strict); không có schema -> `json_object`. Model không
+    nhận `json_schema` thì OpenRouter trả 400 -> `LLMSchemaUnsupported`, nơi gọi tự thử lại
+    bằng `json_object` như với Ollama."""
+    from app.store.app_settings import openrouter_key  # noqa: PLC0415 — tránh vòng import
+
+    key = openrouter_key(model)
+    if not key:
+        raise LLMModelError(f"Chưa có khóa API cho mô hình OpenRouter '{model}'. Hãy thêm lại trong Cài đặt.")
+    body: dict[str, Any] = {"model": model, "messages": messages}
+    if temperature is not None:
+        body["temperature"] = temperature
+    if isinstance(response_format, dict):
+        body["response_format"] = {"type": "json_schema",
+                                   "json_schema": {"name": "result", "strict": True, "schema": response_format}}
+    elif response_format:
+        body["response_format"] = {"type": "json_object"}
+    headers = {"Authorization": f"Bearer {key}", "X-Title": "IERCV"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(OPENROUTER_URL, json=body, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise LLMRateLimitError("Mô hình trực tuyến phản hồi quá lâu. Hãy thử lại sau ít phút.") from exc
+    except httpx.TransportError as exc:
+        raise LLMRateLimitError("Không kết nối được OpenRouter — kiểm tra mạng Internet rồi thử lại.") from exc
+    if r.status_code in (401, 403):
+        raise LLMModelError("Khóa API OpenRouter không hợp lệ hoặc đã hết hạn — hãy cập nhật trong Cài đặt.")
+    if r.status_code == 402:
+        raise LLMModelError("Tài khoản OpenRouter đã hết tín dụng.")
+    if r.status_code == 404:
+        raise LLMModelError(f"OpenRouter không có mô hình '{model}' — kiểm tra lại tên trong Cài đặt.")
+    if r.status_code == 429 or r.status_code >= 500:
+        raise LLMRateLimitError(f"OpenRouter đang quá tải (mã {r.status_code}). Hãy thử lại sau ít phút.")
+    if r.status_code == 400 and isinstance(response_format, dict):
+        raise LLMSchemaUnsupported(f"{model}: không nhận json_schema")
+    if r.status_code >= 400:
+        print(f"[llm] OpenRouter {model}: {r.status_code} {r.text[:300]}")
+        raise LLMModelError(f"Mô hình trực tuyến '{model}' trả lỗi (mã {r.status_code}).")
+    try:
+        content = r.json()["choices"][0]["message"]["content"] or ""
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise LLMModelError(f"Mô hình trực tuyến '{model}' trả kết quả không đọc được.") from exc
+    metrics.bump("llm.openrouter")
+    return content
+
+
 def build_messages(system: Any, user_payload: dict[str, Any]) -> list[dict[str, str]]:
     """Dựng messages chuẩn: system (chuỗi hoặc list dòng) + user là JSON của payload.
 
@@ -430,7 +494,7 @@ async def call_llm_json(
     # tra thật xin 12288 — hai cửa sổ khác nhau trên cùng một model. Ollama khi đó hoặc
     # dựng lại runner (mất mấy phút nạp 4,7 GB, nằm trọn trong thời gian người dùng
     # chờ), hoặc giữ runner cũ và CẮT CỤT prompt xuống cửa sổ nhỏ — cắt cụt thì không
-    # có lỗi nào, model vẫn trả JSON đúng schema, chỉ là nó chưa đọc hết đoạn luật.
+    # có lỗi nào, model vẫn trả JSON đúng schema, chỉ là nó chưa đọc hết đoạn quy định.
     #
     # Nên: khai `num_ctx` cho bước nào thì mọi lượt gọi của bước đó — preflight,
     # warm-up, chạy thật — dùng ĐÚNG con số ấy. Chỉ khi KHÔNG khai mới co theo payload.
@@ -469,7 +533,7 @@ async def warmup(
         return
     base = (base_url or settings.ollama_base_url).rstrip("/")
     name = next(iter(_models_of(models or settings.ollama_model or "")), "")
-    if not name:
+    if not name or name.startswith(OPENROUTER_PREFIX):   # mô hình trực tuyến: không có gì để nạp
         return
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=5.0)) as c:
@@ -514,9 +578,10 @@ async def _check_extraction() -> None:
         run_llm_extraction,  # noqa: PLC0415 — import muộn tránh vòng
     )
 
-    job_prompt = {"fields_catalog": {"ngay_ky_hop_dong": {"label": "Ngày ký hợp đồng"}}}
-    text = "Hợp đồng cung ứng lao động. Ngày ký: 01/06/2025."
-    fields, _ = await run_llm_extraction(job_prompt, text, {"ngay_ky_hop_dong"})
+    job_prompt = {"document_kind": "hợp đồng",
+                  "fields_catalog": {"ngay_ky": {"label": "Ngày ký", "value_type": "date"}}}
+    text = "Hợp đồng dịch vụ. Ngày ký: 01/06/2025."
+    fields, _ = await run_llm_extraction(job_prompt, text, {"ngay_ky"})
     if not isinstance(fields, dict):
         raise RuntimeError("Bước trích xuất không trả JSON dạng object.")
 
@@ -527,11 +592,11 @@ async def _check_validation() -> None:
         run_validation,  # noqa: PLC0415 — import muộn tránh vòng
     )
 
-    job_prompt = {"job_id": "preflight", "display_name": "Preflight",
-                  "jurisdiction": "VN", "fields_catalog": {"ky_quy_vnd": {"label": "Ký quỹ"}}}
-    contract = {"extracted_fields": {"ky_quy_vnd": {"value": {"amount": 0, "currency": "VND"}}}}
-    chunks = [{"id": "r1", "text": "Không thu tiền ký quỹ.", "metadata": {"source_doc": "Luật"}}]
-    out = await run_validation(job_prompt, contract, ["ky_quy_vnd"], chunks)
+    job_prompt = {"id": "preflight", "display_name": "Preflight", "document_kind": "hợp đồng",
+                  "jurisdiction": "VN", "fields_catalog": {"dat_coc": {"label": "Tiền đặt cọc"}}}
+    contract = {"extracted_fields": {"dat_coc": {"value": {"amount": 0, "currency": "VND"}}}}
+    chunks = [{"id": "r1", "text": "Không thu tiền đặt cọc.", "metadata": {"source_doc": "Quy định"}}]
+    out = await run_validation(job_prompt, contract, ["dat_coc"], chunks)
     if not isinstance(out, dict):
         raise RuntimeError("Bước kiểm tra không trả JSON dạng object.")
 
@@ -540,18 +605,25 @@ async def preflight(soft: bool) -> int:
     """--soft: luôn thoát mã 0 (chỉ cảnh báo) để không chặn `npm run dev`.
     Mặc định (strict): thoát mã 1 nếu bất kỳ bước nào lỗi (hữu ích cho CI/kiểm tra tay)."""
     base = settings.ollama_base_url.rstrip("/")
-    ext = _models_of(settings.extraction_model or settings.ollama_model)
+    # `use_llm_extraction=false`: bước trích xuất chỉ chạy regex + luật nhãn, KHÔNG gọi
+    # model nào. Vẫn đòi extraction_model ở đây thì preflight báo "chưa pull model1" cho
+    # một model hệ thống không bao giờ dùng tới.
+    ext = (_models_of(settings.extraction_model or settings.ollama_model)
+           if settings.use_llm_extraction else [])
     val = _models_of(settings.validation_model or settings.ollama_model)
     errs: list[str] = []
 
     _ectx = settings.extraction_num_ctx or settings.ollama_num_ctx
     _vctx = settings.validation_num_ctx or settings.ollama_num_ctx
-    print(f"[preflight] TRÍCH XUẤT: {ext or '(chưa cấu hình)'} @ {base} · num_ctx={_ectx}")
+    if settings.use_llm_extraction:
+        print(f"[preflight] TRÍCH XUẤT: {ext or '(chưa cấu hình)'} @ {base} · num_ctx={_ectx}")
+    else:
+        print("[preflight] TRÍCH XUẤT: TẮT LLM (use_llm_extraction=false) — chỉ regex + luật nhãn")
     print(f"[preflight] KIỂM TRA  : {val or '(chưa cấu hình)'} @ {base} · num_ctx={_vctx} "
           f"· keep_alive={settings.validation_keep_alive}")
-    if _vctx <= _ectx:
+    if ext and _vctx <= _ectx:
         print("[preflight] CẢNH BÁO: cửa sổ của bước KIỂM TRA không lớn hơn bước TRÍCH "
-              "XUẤT. Payload kiểm tra (đoạn luật + toàn bộ trường) dài hơn nhiều — cắt "
+              "XUẤT. Payload kiểm tra (đoạn quy định + toàn bộ trường) dài hơn nhiều — cắt "
               "cụt ở đây KHÔNG báo lỗi, model vẫn trả JSON nhưng chưa đọc hết luật. "
               "Đặt validation_num_ctx > extraction_num_ctx trong .env.")
     if ext and val and ext != val:
@@ -575,6 +647,8 @@ async def preflight(soft: bool) -> int:
     have = installed.get(base) or set()
     for tag, names in (("TRÍCH XUẤT", ext), ("KIỂM TRA", val)):
         for n in names if have else []:
+            if n.startswith(OPENROUTER_PREFIX):     # mô hình trực tuyến: không cần pull
+                continue
             if not _present(n, have):
                 errs.append(f"[{tag}] Model '{n}' chưa có trên {base}. Chạy: ollama pull {n}")
 
@@ -583,11 +657,12 @@ async def preflight(soft: bool) -> int:
     # không phải NẠP MODEL lúc khởi động — model chỉ nạp khi có yêu cầu thật, và tự
     # "ngủ đông" (unload khỏi RAM) sau ollama_keep_alive (mặc định 5m) không được gọi.
     if not errs and not soft:
-        try:
-            await _check_extraction()
-            print("[preflight] ✓ TRÍCH XUẤT trả JSON OK")
-        except Exception as e:  # noqa: BLE001
-            errs.append(f"[TRÍCH XUẤT] gọi thất bại: {e!r}")
+        if ext:
+            try:
+                await _check_extraction()
+                print("[preflight] ✓ TRÍCH XUẤT trả JSON OK")
+            except Exception as e:  # noqa: BLE001
+                errs.append(f"[TRÍCH XUẤT] gọi thất bại: {e!r}")
         try:
             await _check_validation()
             print("[preflight] ✓ KIỂM TRA trả JSON OK")

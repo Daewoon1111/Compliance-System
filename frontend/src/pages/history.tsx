@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getAudit, getSessionReport } from "../api/client";
-import type { AuditRecord, CheckResult, DocResult, ValidateResponse } from "../types";
-import { AppShell, Spinner } from "../components/Layout";
-import { CARD, BTN, BTN_PRIMARY, badgeCls, jobTypeText } from "../ui";
+import { getAudit, getFieldSets, getSessionReport } from "../api/client";
+import type { AuditRecord, CheckResult, DocResult, FieldSetInfo, ValidateResponse } from "../types";
+import { AppShell, PageHeader, Spinner } from "../components/Layout";
+import { IconDownload } from "../components/Icons";
+import { printHtml, CARD, BTN, badgeCls, fmtFieldValue } from "../ui";
 import { notify } from "../notify";
-import { useT, translate, catLabel, useCatLabel } from "../i18n";
+import { useT, translate } from "../i18n";
 
 const TH = "border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-[13px] font-semibold text-slate-700";
 const TD = "border-b border-slate-200 px-3 py-2.5 align-top text-[13px]";
@@ -21,13 +22,7 @@ function esc(s: unknown): string {
   return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c] as string));
 }
 function fval(v: unknown): string {
-  if (v && typeof v === "object") {
-    const o = v as Record<string, unknown>;
-    if (typeof o.raw === "string" && o.raw.trim()) return o.raw;
-    if (o.amount != null) return [o.amount, o.currency].filter(Boolean).join(" ");
-    return JSON.stringify(v);
-  }
-  return v == null ? "" : String(v);
+  return fmtFieldValue(v as never, "");
 }
 
 function groupTableHtml(items: CheckResult[]): string {
@@ -41,7 +36,6 @@ function groupTableHtml(items: CheckResult[]): string {
 function docHtml(d: DocResult, i: number): string {
   const checks = d.checks || [];
   const decl = checks.filter((c) => c.group === "declaration");
-  const payer = checks.filter((c) => c.group === "payer");
   const chk = checks.filter((c) => (c.group || "check") === "check");
   const detail = checks
     .filter((c) => c.verdict !== "DECLARATION")
@@ -56,7 +50,6 @@ function docHtml(d: DocResult, i: number): string {
     <div class="doc">
       <h3>${translate("rv.ocrFile")} ${i + 1}: ${esc(d.source_file)} — ${esc(vlabel(d.overall_verdict))}</h3>
       <h4>${translate("rv.infoTitle")} (${decl.length})</h4>${groupTableHtml(decl)}
-      <h4>${translate("rv.costs")} (${payer.length})</h4>${groupTableHtml(payer)}
       <h4>${translate("hs.checkTitle")}</h4>${groupTableHtml(chk)}
       <h4>${translate("hs.detailTitle")}</h4>${detail || '<p class="muted">—</p>'}
     </div>`;
@@ -64,7 +57,7 @@ function docHtml(d: DocResult, i: number): string {
 
 function buildReportHtml(r: ValidateResponse): { html: string; title: string } {
   const time = r.checked_at ? new Date(r.checked_at).toLocaleString("vi-VN") : "";
-  const title = `${translate("hs.printTitle")} ${time} ${catLabel(r.market_name || "")} ${catLabel(r.job_type_name || "")}`.trim();
+  const title = `${translate("hs.printTitle")} ${time} ${r.field_set_name || ""}`.trim();
   const docs = (r.documents || []).map((d, i) => docHtml(d, i)).join("");
   const html = `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>${esc(title)}</title>
   <style>
@@ -77,10 +70,9 @@ function buildReportHtml(r: ValidateResponse): { html: string; title: string } {
   </style></head><body>
     <h1>${esc(translate("hs.printTitle"))}</h1>
     <div class="kv"><b>${esc(translate("rs.checkTitle"))}:</b> ${esc(vlabel(r.overall_verdict))}</div>
-    <div class="kv"><b>${esc(translate("hs.pMarket"))}</b> ${esc(catLabel(r.market_name || "") || "—")}</div>
-    <div class="kv"><b>${esc(translate("hs.pJobType"))}</b> ${esc(jobTypeText(catLabel(r.job_type_name || ""), r.job_title))}</div>
-    <div class="kv"><b>${esc(translate("hs.pDuration"))}</b> ${esc(r.contract_duration || "—")}</div>
-    <div class="kv"><b>${esc(translate("hs.pDocType"))}</b> ${esc(translate("hs.pDocTypeValue"))}</div>
+    <div class="kv"><b>${esc(translate("hs.pFieldSet"))}</b> ${esc(r.field_set_name || r.field_set_id || "—")}</div>
+    <div class="kv"><b>${esc(translate("hs.pDocType"))}</b> ${esc(r.document_kind || "—")}</div>
+    <div class="kv"><b>${esc(translate("hs.pSignedDate"))}</b> ${esc(r.signed_date || "—")}</div>
     <div class="kv"><b>${esc(translate("hs.pDocs"))}</b> ${(r.documents || []).length}</div>
     ${docs}
   </body></html>`;
@@ -88,10 +80,11 @@ function buildReportHtml(r: ValidateResponse): { html: string; title: string } {
 }
 
 function toCsv(records: AuditRecord[]): string {
-  const rows: string[][] = [[translate("hs.checkedAt"), translate("common.market"), translate("common.jobType"), translate("hs.docs"), translate("hs.doc"), translate("hs.colVerdict")]];
+  const rows: string[][] = [[translate("hs.checkedAt"), translate("common.fieldSet"), translate("hs.pSignedDate"), translate("hs.docs"), translate("hs.doc"), translate("hs.colVerdict")]];
   for (const r of records) {
-    if (!r.documents.length) rows.push([r.ts, catLabel(r.market_name), catLabel(r.job_type_name), String(r.num_documents), "", ""]);
-    for (const d of r.documents) rows.push([r.ts, catLabel(r.market_name), catLabel(r.job_type_name), String(r.num_documents), d.source_file, vlabel(d.overall_verdict)]);
+    const head = [r.ts, r.field_set_name || r.field_set_id, r.signed_date || "", String(r.num_documents)];
+    if (!r.documents.length) rows.push([...head, "", ""]);
+    for (const d of r.documents) rows.push([...head, d.source_file, vlabel(d.overall_verdict)]);
   }
   // Ô mở đầu bằng = + - @ (hoặc tab/CR) được Excel/Sheets hiểu là CÔNG THỨC. Tên file
   // hồ sơ do người dùng đặt nên đi thẳng vào đây -> chèn dấu ' để ép về text.
@@ -115,24 +108,29 @@ function download(name: string, content: string, mime: string) {
 export default function History() {
   const nav = useNavigate();
   const t = useT();
-  // Danh mục "English (Tiếng Việt)" -> chỉ hiện bản của ngôn ngữ đang chọn.
-  const cat = useCatLabel();
   const [records, setRecords] = useState<AuditRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  // KHO HỒ SƠ (Tầng 3.3): tìm toàn văn (bỏ dấu) + lọc theo kết luận.
+  // KHO HỒ SƠ: tìm toàn văn (bỏ dấu) + lọc theo loại hồ sơ và kết luận.
   const [q, setQ] = useState("");
   const [fVerdict, setFVerdict] = useState("");
+  const [fFieldSet, setFFieldSet] = useState("");
+  const [fieldSets, setFieldSets] = useState<FieldSetInfo[]>([]);
+
+  useEffect(() => {
+    getFieldSets().then((r) => setFieldSets(r.field_sets || [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setLoading(true);
-      getAudit(300, q.trim(), "", fVerdict)
+      getAudit(300, q.trim(), fFieldSet, fVerdict)
         .then((d) => setRecords(d.records || []))
         .catch(() => setRecords([]))
         .finally(() => setLoading(false));
     }, 300); // debounce gõ tìm kiếm
     return () => clearTimeout(t);
-  }, [q, fVerdict]);
+  }, [q, fVerdict, fFieldSet]);
+  const filtered = !!(q || fVerdict || fFieldSet);
 
   async function exportPdf(sessionId: string) {
     let report: ValidateResponse;
@@ -143,19 +141,12 @@ export default function History() {
       return;
     }
     const { html, title } = buildReportHtml(report);
-    const w = window.open("", "_blank");
-    if (!w) {
-      notify("error", t("hs.popupBlocked"));
-      return;
-    }
-    w.document.write(html);
-    w.document.title = title; // tên file mặc định khi Lưu thành PDF
-    w.document.close();
-    w.focus();
-    setTimeout(() => w.print(), 350);
+    // In qua KHUNG ẨN ngay trong cửa sổ, không mở cửa sổ mới: bản ứng dụng (cửa sổ phần
+    // mềm gốc) không có tab/cửa sổ phụ — window.open bị chuyển sang trình duyệt ngoài.
+    if (!printHtml(html, title)) notify("error", t("hs.popupBlocked"));
   }
 
-  if (loading && !records.length && !q && !fVerdict) {
+  if (loading && !records.length && !filtered) {
     return (
       <AppShell>
         <div className="grid place-items-center gap-2.5 p-10 text-sm text-slate-500">
@@ -167,18 +158,21 @@ export default function History() {
 
   return (
     <AppShell>
-      <div className={CARD}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="m-0 text-lg font-bold">{t("hs.title")}</h2>
+      <PageHeader
+        title={t("hs.title")}
+        desc={t("hs.lead")}
+        actions={
           <button
-            className={BTN_PRIMARY}
+            className={BTN}
             disabled={!records.length}
             onClick={() => download("nhat_ky_kiem_tra.csv", toCsv(records), "text/csv;charset=utf-8")}
           >
-            {t("hs.downloadCsv")}
+            <IconDownload className="h-4.5 w-4.5" /> {t("hs.downloadCsv")}
           </button>
-        </div>
-        {/* KHO HỒ SƠ: tìm kiếm toàn văn + lọc theo kết luận */}
+        }
+      />
+      <div className={CARD}>
+        {/* KHO HỒ SƠ: tìm kiếm toàn văn + lọc theo loại hồ sơ và kết luận */}
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <input
             value={q}
@@ -186,8 +180,18 @@ export default function History() {
             placeholder={t("hs.search")}
             // Bản tiếng Anh dài hơn bản tiếng Việt nên `w-80` cắt cụt gợi ý ở cả hai
             // thứ tiếng; cho co giãn trong khoảng thay vì ghim một bề ngang.
-            className="w-full min-w-56 max-w-md flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            className="h-10 w-full min-w-56 max-w-md flex-1 rounded-[9px] border px-3 text-sm"
           />
+          <select
+            value={fFieldSet}
+            onChange={(e) => setFFieldSet(e.target.value)}
+            className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+          >
+            <option value="">{t("hs.allFieldSets")}</option>
+            {fieldSets.map((f) => (
+              <option key={f.id} value={f.id}>{f.display_name}</option>
+            ))}
+          </select>
           <select
             value={fVerdict}
             onChange={(e) => setFVerdict(e.target.value)}
@@ -201,16 +205,14 @@ export default function History() {
           {loading ? <Spinner dark /> : null}
         </div>
         {records.length === 0 ? (
-          <div className="text-sm text-slate-500">{q || fVerdict ? t("hs.noMatch") : t("hs.empty")}</div>
+          <div className="text-sm text-slate-500">{filtered ? t("hs.noMatch") : t("hs.empty")}</div>
         ) : (
           <table className="w-full border-collapse">
             <thead>
               <tr>
-                {/* Cột này in `r.ts` = THỜI ĐIỂM CHẠY KIỂM TRA, không phải ngày ký
-                    hợp đồng. Dùng nhãn `db.signedDate` ("Ngày ký"/"Signed") là nói
-                    sai nội dung ô — hai đại lượng này lệch nhau hàng tháng. */}
+                {/* Cột này in `r.ts` = THỜI ĐIỂM CHẠY KIỂM TRA, không phải ngày ký. */}
                 <th className={TH + " w-44"}>{t("hs.checkedAt")}</th>
-                <th className={TH}>{t("common.market")} / {t("common.jobType")}</th>
+                <th className={TH}>{t("common.fieldSet")}</th>
                 <th className={TH}>{t("hs.doc")}</th>
                 {/* `w-px` + `whitespace-nowrap`: cột co đúng bằng bề ngang hai nút.
                     Bề rộng cố định `w-48` vừa cho "Xem · Tải PDF" nhưng KHÔNG vừa
@@ -223,8 +225,10 @@ export default function History() {
                 <tr key={r.session_id + i}>
                   <td className={TD}>{new Date(r.ts).toLocaleString("vi-VN")}</td>
                   <td className={TD}>
-                    <div className="font-medium text-slate-800">{cat(r.market_name || "") || "—"}</div>
-                    <div className="text-slate-500">{cat(r.job_type_name || "") || "—"}</div>
+                    <div className="font-medium text-slate-800">{r.field_set_name || r.field_set_id || "—"}</div>
+                    {r.signed_date ? (
+                      <div className="text-slate-500">{t("hs.pSignedDate")} {r.signed_date}</div>
+                    ) : null}
                   </td>
                   <td className={TD}>
                     <div className="flex flex-col gap-1">

@@ -1,10 +1,6 @@
 /**
- * Ô CHỌN CÓ TÌM KIẾM — thay `<select>` gốc ở những danh mục dài.
- *
- * Danh mục quốc gia/loại hình lao động nay mang cả tên tiếng Anh lẫn tiếng Việt
- * ("Japan (Nhật Bản)"), nên một danh sách xổ xuống thuần túy bắt người dùng cuộn
- * qua hàng chục dòng để tìm đúng mục. Gõ vài chữ là ra — và gõ được bằng CẢ HAI
- * thứ tiếng, kể cả khi không bỏ dấu ("nhat ban" vẫn ra "Japan (Nhật Bản)").
+ * Ô CHỌN CÓ TÌM KIẾM — thay `<select>` gốc ở những danh mục dài (vd danh sách loại
+ * hồ sơ). Gõ vài chữ là ra, kể cả khi không bỏ dấu ("hop dong" vẫn ra "Hợp đồng…").
  *
  * Vẫn là một <input> + danh sách thường: không phụ thuộc thư viện ngoài, đóng khi
  * bấm ra ngoài hoặc nhấn Esc, đi lại bằng ↑/↓ và chọn bằng Enter.
@@ -16,7 +12,7 @@ import { IconChevronDown } from "./Icons";
 
 export type Option = { value: string; label: string };
 
-/** Bỏ dấu + gộp khoảng trắng: gõ "nhat ban" tìm được "Japan (Nhật Bản)". */
+/** Bỏ dấu + gộp khoảng trắng: gõ "hop dong" tìm được "Hợp đồng". */
 function fold(s: string): string {
   return s
     .replace(/đ/g, "d")
@@ -51,7 +47,7 @@ export default function SearchSelect(props: {
   const list = useMemo(() => {
     const f = fold(q);
     if (!f) return props.options;
-    // Mọi từ khóa phải xuất hiện -> gõ "japan bien" ra "Seafaring… " của Japan.
+    // Mọi từ khóa phải xuất hiện (không cần đúng thứ tự).
     const words = f.split(" ");
     return props.options.filter((o) => {
       const t = fold(o.label);

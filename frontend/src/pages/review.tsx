@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { friendly, getDocuments, patchDocumentFields } from "../api/client";
 import {
@@ -7,33 +7,30 @@ import {
   startValidateJob,
   subscribeValidateJob,
 } from "../progressStore";
-import type { DossierAnalysis, FieldGroup, InputFlag, SessionDocument } from "../types";
+import type { FieldGroup, InputFlag, SessionDocument, ValueType } from "../types";
 import { AppShell, Alert, Spinner } from "../components/Layout";
-import { DossierPanel, FlagList } from "../components/DossierPanel";
+import { FlagList } from "../components/FlagList";
 import { notify } from "../notify";
 import { setLastCheckPath } from "../session";
-import { CARD, BTN, BTN_PRIMARY, FIELD, fmtCostValue, fmtFieldValue, jobTypeText } from "../ui";
+import { CARD, BTN, BTN_PRIMARY, FIELD, fmtFieldValue } from "../ui";
 import { IconEdit, IconFile, IconX, IconWarning, IconChevronLeft, IconChevronRight } from "../components/Icons";
-import { useT, translate, useCatLabel } from "../i18n";
-import { zipCosts } from "../costPairs";
+import Tip from "../components/Tip";
+import { useT, translate } from "../i18n";
 
-const TH = "sticky top-0 border-b border-slate-200 bg-white px-3 py-2 text-left text-[13px] font-semibold text-slate-700";
+const TH = "sticky top-0 border-b border-slate-200 bg-surface px-3 py-2 text-left text-[13px] font-semibold text-slate-700";
 const LOW_CONF = 0.5;
-
-/** Vai trò tài liệu trong bộ hồ sơ — cũng là NGUỒN của giá trị đã gộp. */
-type DocRole = "dang_ky" | "hop_dong" | "unknown";
 
 type Row = {
   key: string; label: string; value: unknown; group: FieldGroup;
-  /** Nhóm con trong `group` (vd "Lương & khấu trừ") — chia tiểu mục trong bảng. */
+  /** Mục trong bộ trường (`fields_catalog[k].section`) — mỗi mục một thẻ nhóm. */
   section: string;
+  valueType: ValueType;
   has: boolean; conf: number; lowConf: boolean; quote: string;
 };
 
 type MRow = Row & {
+  /** Tài liệu đã cho ra giá trị này (sửa tay ghi vào đúng tài liệu đó). */
   sourceDocId: string;
-  /** Vai trò của tài liệu đã cho ra giá trị này (dùng cho bộ lọc theo NGUỒN). */
-  sourceRole: DocRole;
 };
 
 /** BỘ LỌC bảng trường — theo TRẠNG THÁI cần xử lý.
@@ -46,7 +43,7 @@ type Filt = "all" | "empty" | "lowconf" | "has";
 
 /** MỨC CHÚ Ý (0 = cần xem trước nhất). Bảng sắp theo đây thay vì theo thứ tự khai
  *  báo trong `fields_catalog` — thứ tự đó tiện cho lập trình, không tiện cho người
- *  duyệt: thứ đáng sửa nằm rải rác giữa 65 dòng đã đúng. */
+ *  duyệt: thứ đáng sửa nằm rải rác giữa các dòng đã đúng. */
 function rankOf(r: MRow): number {
   if (!r.has) return 0;
   if (r.lowConf) return 1;
@@ -101,17 +98,17 @@ function rowsOf(doc: SessionDocument): Row[] {
         key, label: obj?.label || key, value,
         group: (obj?.group as FieldGroup) || "check",
         section: obj?.section || "",
+        valueType: obj?.value_type || "text",
         has, conf, lowConf: has && conf < LOW_CONF,
         quote: obj?.evidence?.short_quote || "",
       };
     });
 }
 
-// Gộp theo THỨ TỰ ưu tiên truyền vào (VĂN BẢN ĐĂNG KÝ trước, rồi hợp đồng cung ứng):
-// mỗi trường lấy GIÁ TRỊ ĐÚNG NHẤT = từ tài liệu ưu tiên cao nhất có giá trị.
-// Thứ tự phải KHỚP backend (`report.py > _ROLE_ORDER`) — hai bên lệch nhau thì bảng
-// trang 2 hiện một giá trị còn báo cáo trang 3 kết luận trên một giá trị khác.
-function mergedRows(docsIn: SessionDocument[], roleOf: (d: SessionDocument) => DocRole): MRow[] {
+// Gộp theo THỨ TỰ TẢI LÊN — khớp backend (`merge_contracts`): tài liệu đầu là tài liệu
+// chính, các tài liệu sau chỉ bù trường còn trống. Hai bên lệch thứ tự thì bảng trang 2
+// hiện một giá trị còn báo cáo trang 3 kết luận trên một giá trị khác.
+function mergedRows(docsIn: SessionDocument[]): MRow[] {
   if (!docsIn.length) return [];
   const rowMap = new Map(docsIn.map((d) => [d.doc_id, new Map(rowsOf(d).map((r) => [r.key, r]))]));
   const keys: string[] = [];
@@ -121,30 +118,24 @@ function mergedRows(docsIn: SessionDocument[], roleOf: (d: SessionDocument) => D
       if (!seen.has(r.key)) { seen.add(r.key); keys.push(r.key); }
     }
   }
-  // LỆCH GIỮA 2 TÀI LIỆU: cùng một trường mà VĂN BẢN ĐĂNG KÝ và HỢP ĐỒNG CUNG ỨNG
-  // ghi hai giá trị khác nhau. Bảng gộp chỉ hiện giá trị của tài liệu ưu tiên, nên
-  // không nêu riêng thì mâu thuẫn BIẾN MẤT khỏi màn hình — đúng loại lỗi phải sửa tay.
-  // So sánh trên chuỗi HIỂN THỊ (bỏ dấu, gộp khoảng trắng) để khác biệt kiểu
-  // "3 năm" / "3 Năm" không bị tính là lệch.
+  // LỆCH GIỮA CÁC TÀI LIỆU: cùng một trường mà hai file ghi hai giá trị khác nhau.
+  // Bảng gộp chỉ hiện giá trị của tài liệu ưu tiên, nên không gắn cờ thì mâu thuẫn
+  // BIẾN MẤT khỏi màn hình — gắn `lowConf` đẩy nó lên đầu kèm huy hiệu "tin cậy thấp".
+  // So trên chuỗi HIỂN THỊ (bỏ dấu, gộp khoảng trắng) để "3 năm" / "3 Năm" không bị tính lệch.
   const norm = (v: unknown) => foldVi(fmtFieldValue(v as never, ""));
-  const isCore = (d: SessionDocument) => roleOf(d) === "dang_ky" || roleOf(d) === "hop_dong";
   return keys.map((key) => {
     const vals = new Set<string>();
     for (const d of docsIn) {
-      if (!isCore(d)) continue;   // tài liệu phụ chỉ bù trường trống, không tính lệch
       const r = rowMap.get(d.doc_id)!.get(key);
       if (r?.has) vals.add(norm(r.value));
     }
-    // HAI TÀI LIỆU GHI KHÁC NHAU -> đánh dấu TIN CẬY THẤP (không còn trạng thái "lệch"
-    // riêng): bảng gộp chỉ hiện một giá trị nên mâu thuẫn này biến mất khỏi màn hình
-    // nếu không gắn cờ; gắn `lowConf` đẩy nó lên đầu và hiện huy hiệu "tin cậy thấp".
     const conflict = vals.size > 1;
     for (const d of docsIn) {
       const r = rowMap.get(d.doc_id)!.get(key);
-      if (r && r.has) return { ...r, lowConf: r.lowConf || conflict, sourceDocId: d.doc_id, sourceRole: roleOf(d) };
+      if (r && r.has) return { ...r, lowConf: r.lowConf || conflict, sourceDocId: d.doc_id };
     }
     const r0 = rowMap.get(docsIn[0].doc_id)!.get(key)!;
-    return { ...r0, lowConf: r0.lowConf || conflict, sourceDocId: docsIn[0].doc_id, sourceRole: roleOf(docsIn[0]) };
+    return { ...r0, lowConf: r0.lowConf || conflict, sourceDocId: docsIn[0].doc_id };
   });
 }
 
@@ -205,27 +196,41 @@ function bestLine(ocr: SessionDocument["ocr"] | undefined, quote: string): { p: 
  *  chạy theo tay, không đọc được. Kẹp trong khung nhìn để không tràn mép. */
 const PEEK_W = 460;
 const PEEK_CTX = 2;      // số dòng ngữ cảnh giữ ở mỗi phía
+const PEEK_TOP_GAP = 76; // chừa thanh trên (64 px) — ô xem trước không được khuất sau nó
 
 function OcrPeek({ doc, quote, x, y }: {
   doc?: SessionDocument; quote: string; x: number; y: number;
 }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // Vị trí đặt SAU KHI đo chiều cao thật của ô: bản cũ lật ô lên trên con trỏ bằng
+  // `bottom`, nên ô cao hơn khoảng trống phía trên bị đẩy lên quá mép và khuất sau thanh
+  // trên. Đo rồi kẹp: ưu tiên dưới con trỏ, không đủ chỗ thì trên, vẫn không đủ thì dính
+  // ngay dưới thanh trên (ô tự cuộn trong chiều cao còn lại).
+  const [top, setTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const h = ref.current?.offsetHeight ?? 0;
+    const minTop = PEEK_TOP_GAP;
+    const maxTop = window.innerHeight - h - 12;
+    const below = y + 18;
+    const above = y - 18 - h;
+    const next = below <= maxTop ? below : above >= minTop ? above : Math.max(minTop, Math.min(below, maxTop));
+    setTop(next);
+  }, [x, y, quote]);
   const hit = bestLine(doc?.ocr, quote);
   if (!doc || !hit) return null;
   const page = doc.ocr!.pages![hit.p];
   const from = Math.max(0, hit.l - PEEK_CTX);
   const lines = page.slice(from, hit.l + PEEK_CTX + 1);
-  // Kẹp trong khung nhìn: mép phải không tràn, và nếu con trỏ ở nửa dưới màn hình
-  // thì lật ô lên phía trên để nó không bị cắt.
   const left = Math.min(Math.max(12, x + 18), window.innerWidth - PEEK_W - 12);
-  const below = y < window.innerHeight * 0.55;
   const style: React.CSSProperties = {
-    left, width: PEEK_W, borderRadius: 10,
-    ...(below ? { top: y + 18 } : { bottom: window.innerHeight - y + 18 }),
+    left, width: PEEK_W, borderRadius: 10, top: top ?? -9999,
+    maxHeight: Math.min(window.innerHeight - PEEK_TOP_GAP - 12, window.innerHeight * 0.5), overflow: "auto",
   };
   return (
     <div
+      ref={ref}
       style={style}
-      className="pointer-events-none fixed z-40 animate-[peek-in_140ms_ease-out] border border-slate-300 bg-white p-2.5 shadow-xl"
+      className="pointer-events-none fixed z-40 animate-[peek-in_140ms_ease-out] border border-slate-300 bg-surface p-2.5 shadow-xl"
     >
       <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
         <IconFile className="h-3.5 w-3.5 shrink-0" />
@@ -324,7 +329,9 @@ function OcrViewer({ docs, idx, setIdx, hoverQuote, onPickLine }: {
         </div>
       ) : null}
       {onPickLine ? (
-        <div className="mb-1.5 text-[12px] text-slate-500">↔ {t("rv.clickLineHint")}</div>
+        <Tip id="rv.clickLine" className="mb-1.5 rounded-md bg-slate-50 py-1 pl-2">
+          <div className="text-[12px] text-slate-500">↔ {t("rv.clickLineHint")}</div>
+        </Tip>
       ) : null}
       {/* Font sans (dễ đọc tiếng Việt hơn mono) + tô sáng dòng khớp với trường đang di chuột.
           `flex-1 min-h-0 overflow-auto` -> CHÍNH khung này là vùng cuộn, tiêu đề ở trên đứng im. */}
@@ -358,19 +365,7 @@ function OcrViewer({ docs, idx, setIdx, hoverQuote, onPickLine }: {
   );
 }
 
-/** Hiển thị giá trị 1 dòng. Trường nhóm CHI PHÍ chỉ ghi 'số tiền + đơn vị tiền tệ'
- *  (kỳ trả '/tháng' là quy ước riêng của TIỀN LƯƠNG). */
-function showValue(r: MRow): string {
-  return r.group === "payer" ? fmtCostValue(r.value as never) : fmtFieldValue(r.value as never);
-}
-
-/** Ô GIÁ TRỊ dùng chung cho bảng khai báo và bảng trường/chi phí.
- *  Nút ✎ sửa nằm ở mép PHẢI (mở cửa sổ sửa ở giữa màn hình).
- *
- *  KHÔNG có nhãn nguồn tài liệu (ĐK/HĐ) cạnh giá trị: bảng vốn đã chật, và một huy
- *  hiệu hai chữ cái lặp ở mọi dòng thành nhiễu nền — mắt thôi nhìn thấy nó. Ai cần
- *  lọc theo nguồn thì dùng hàng chip lọc phía trên, ở đó nguồn là thứ ĐANG được hỏi
- *  chứ không phải thứ đọc lướt qua. */
+/** Ô GIÁ TRỊ của bảng trường. Nút ✎ sửa nằm ở mép PHẢI (mở cửa sổ sửa ở giữa màn hình). */
 function ValueCell({ r, locked, editApi }: { r: MRow; locked: boolean; editApi?: EditApi }) {
   const t = useT();
   return (
@@ -378,7 +373,7 @@ function ValueCell({ r, locked, editApi }: { r: MRow; locked: boolean; editApi?:
       <span className="min-w-0 flex-1 wrap-break-word">
         {r.has ? (
           <>
-            {showValue(r)}
+            {fmtFieldValue(r.value as never)}
             {r.lowConf ? (
               <span className="ml-1.5 inline-flex items-center gap-1 rounded bg-amber-200 px-1.5 py-px text-[11px] font-semibold text-amber-900"
                 title={`${t("rv.lowConfTitle")} (${(r.conf * 100).toFixed(0)}%)`}><IconWarning className="h-3.5 w-3.5" />{t("rv.lowConf")}</span>
@@ -414,18 +409,17 @@ function EditDialog({ editApi }: { editApi: EditApi }) {
       role="dialog"
       aria-modal="true"
     >
-      <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-4 shadow-2xl">
+      <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-surface p-5 shadow-2xl">
         <div className="text-[16px] font-bold text-slate-800">{t("rv.editTitle")}</div>
         <div className="mt-0.5 text-[14px] text-slate-500">{r.label}</div>
 
         <label className="mt-3 block text-[13px] font-semibold text-slate-600">{t("rv.editOld")}</label>
-        <div className="mt-1 min-h-9 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[14px] wrap-break-word text-slate-600">
-          {r.has ? showValue(r) : <span className="text-slate-400">{t("common.empty")}</span>}
+        <div className="mt-1 max-h-48 min-h-9 w-full overflow-auto rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[14px] wrap-break-word text-slate-600">
+          {r.has ? fmtFieldValue(r.value as never) : <span className="text-slate-400">{t("common.empty")}</span>}
         </div>
 
         <label className="mt-3 block text-[13px] font-semibold text-slate-600">{t("rv.editNew")}</label>
-        {/* Ô NHIỀU DÒNG: nhiều trường là cả đoạn văn (an toàn lao động, điều kiện ăn ở,
-            vé máy bay…) — ô 1 dòng không nhìn được hết.
+        {/* Ô NHIỀU DÒNG: nhiều trường là cả đoạn văn — ô 1 dòng không nhìn được hết.
             Phím: Enter = LƯU (thao tác thường gặp nhất), Ctrl/⌘+Enter = xuống dòng,
             Esc = hủy. */}
         <textarea
@@ -446,10 +440,14 @@ function EditDialog({ editApi }: { editApi: EditApi }) {
             }
           }}
           autoFocus
-          rows={5}
+          rows={8}
           placeholder={t("rv.editPlaceholder")}
-          className={FIELD + " mt-1 min-h-32 resize-y leading-relaxed"}
+          className={FIELD + " mt-1 min-h-48 resize-y leading-relaxed"}
         />
+        {/* Gợi ý ĐỊNH DẠNG theo kiểu giá trị — backend chuẩn hóa ngày/số/tiền khi lưu. */}
+        {r.valueType !== "text" ? (
+          <div className="mt-1 text-[12px] text-slate-500">{t(`rv.editHint.${r.valueType}`)}</div>
+        ) : null}
 
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
           <button className={BTN} onClick={editApi.cancel} disabled={editApi.saving}>{t("common.cancel")}</button>
@@ -513,56 +511,43 @@ function BlankCells() {
 }
 
 /**
- * BẢNG TRƯỜNG — MỘT kiểu trình bày dùng cho CẢ BA nhóm.
- *
- * KHÔNG còn dải tiêu đề nhóm con. Nhóm con của catalog ("Thông tin hợp đồng",
- * "Điều khoản hợp đồng"…) là cách chia của BIỂU MẪU, không phải cách người duyệt
- * làm việc: họ đi theo mức chú ý (trống -> tin cậy thấp -> đã có), mà dải tiêu đề
- * lại cắt vụn đúng thứ tự đó thành từng khúc rời. Bỏ dải đi thì cả danh sách xếp
- * liền một mạch theo việc cần làm, và hai tab đọc y hệt nhau.
+ * BẢNG TRƯỜNG — xếp liền một mạch theo mức chú ý (trống -> tin cậy thấp -> đã có).
  *
  * SỐ CỘT theo bề ngang đang có: 2 cột khi khung OCR đóng, 1 cột khi khung OCR mở
  * (cửa sổ trái hẹp lại, chia đôi tiếp thì nhãn trường vỡ dòng).
  */
 function FieldTable({
-  rows, locked, onHover, editApi, focusKey, valueCol, oneCol,
+  rows, locked, onHover, editApi, focusKey, oneCol,
 }: {
   rows: MRow[];
   locked: boolean;
   onHover?: (q: string, docId?: string, at?: { x: number; y: number }) => void;
   editApi?: EditApi;
   focusKey?: string;
-  /** Tiêu đề cột trái ("Trường thông tin" hoặc "Khoản chi phí"). */
-  valueCol?: string;
-  /** Ép MỘT cột — khung OCR mở, hoặc bảng đã nằm trong một cột hẹp sẵn. */
+  /** Ép MỘT cột — khung OCR đang mở nên cửa sổ trái hẹp lại. */
   oneCol?: boolean;
 }) {
-  const sorted = sortByAttention(rows);
-  const half = Math.ceil(sorted.length / 2);
-  const pairs: [MRow | undefined, MRow | undefined][] = oneCol
-    ? sorted.map((r) => [r, undefined])
-    : sorted.slice(0, half).map((r, i) => [r, sorted[half + i]]);
+  // MỖI TRƯỜNG MỘT HÀNG (nhãn | giá trị trọn vẹn). Bản cũ chia đôi thành hai cặp cột,
+  // giá trị dài bị ép vào 1/4 bề ngang và người duyệt phải đọc một cột chữ hẹp.
+  void oneCol;
+  const pairs: [MRow | undefined, MRow | undefined][] = sortByAttention(rows).map((r) => [r, undefined]);
   return (
     <PairedTable
-      pairs={pairs} oneCol={oneCol}
-      leftHead={valueCol || translate("rv.colField")}
+      pairs={pairs} oneCol
+      leftHead={translate("rv.colField")}
       locked={locked} onHover={onHover} editApi={editApi} focusKey={focusKey} />
   );
 }
 
-/** MỘT bảng, hai nửa — khung dùng chung cho bảng trường và bảng so chi phí.
- *
- *  Bẻ đôi bằng HAI `<table>` cạnh nhau thì mỗi bảng tự tính chiều cao hàng, nên
- *  hàng thứ i của hai nửa không còn nằm ngang nhau — đúng thứ khiến bảng chi phí
- *  hết so sánh được. Một `<tr>` chứa cả hai nửa thì trình duyệt lo phần đó. */
+/** MỘT bảng, hai nửa. Bẻ đôi bằng HAI `<table>` cạnh nhau thì mỗi bảng tự tính chiều
+ *  cao hàng, nên hàng thứ i của hai nửa không còn nằm ngang nhau. Một `<tr>` chứa cả
+ *  hai nửa thì trình duyệt lo phần đó. */
 function PairedTable({
-  pairs, oneCol, leftHead, rightHead, locked, onHover, editApi, focusKey,
+  pairs, oneCol, leftHead, locked, onHover, editApi, focusKey,
 }: {
   pairs: [MRow | undefined, MRow | undefined][];
   oneCol?: boolean;
   leftHead: string;
-  /** Tiêu đề nửa PHẢI khi hai nửa là hai vế khác nhau (bên nào trả khoản nào). */
-  rightHead?: string;
   locked: boolean;
   onHover?: (q: string, docId?: string, at?: { x: number; y: number }) => void;
   editApi?: EditApi; focusKey?: string;
@@ -577,11 +562,11 @@ function PairedTable({
     <table className="w-full table-fixed border-collapse text-[13px]">
       <thead>
         <tr>
-          <th className={TH + (oneCol ? " w-1/2" : " w-1/4")}>{leftHead}</th>
+          <th className={TH + (oneCol ? " w-[30%]" : " w-1/4")}>{leftHead}</th>
           <th className={TH + (oneCol ? "" : " w-1/4")}>{val}</th>
           {oneCol ? null : (
             <>
-              <th className={TH + " w-1/4"}>{rightHead || leftHead}</th>
+              <th className={TH + " w-1/4"}>{leftHead}</th>
               <th className={TH + " w-1/4"}>{val}</th>
             </>
           )}
@@ -599,26 +584,10 @@ function PairedTable({
   );
 }
 
-/** BẢNG KHAI BÁO của thẻ Thông tin hồ sơ — MỘT cột, nhãn trái ⅓, giá trị phải.
- *
- *  Trình bày GIỐNG HỆT trang 3 (`Result > gDecl`): cùng thứ tự catalog, cùng bề rộng
- *  nhãn, không nền màu, không hàng tiêu đề, ô trống ghi `—`. Đây là khối ĐỊNH DANH hồ
- *  sơ — người đọc tra một mục cụ thể chứ không quét tìm việc phải làm, nên nền màu
- *  theo mức chú ý và lối bổ đôi hai cột của bảng điều khoản chỉ làm hai trang đọc
- *  khác nhau trên cùng một dữ liệu.
- *
- *  KHÔNG có nút ✎: tám mục này lấy từ biểu mẫu kê khai và không có ngưỡng nào để đối
- *  chiếu, nên sửa tay chúng không đổi được kết luận nào — một nút hành động ở mỗi
- *  dòng của khối chỉ để ĐỌC là tám lời mời thao tác không dẫn tới đâu. Việc sửa giá
- *  trị OCR đọc sai vẫn còn nguyên ở bảng Điều khoản và bảng Chi phí, nơi giá trị thật
- *  sự đi vào kết luận. */
-/** BẢNG KHAI BÁO — HAI CỘT, chia theo thứ tự catalog (nửa đầu trái, nửa sau phải).
- *
- *  Khối này nay giữ 13 mục (thêm thời gian tuyển chọn, dự kiến xuất cảnh, thời hạn
- *  hợp đồng, chế độ bảo hiểm, ngày công văn). Một cột thì nó thành một cột dọc 13
- *  dòng đẩy toàn bộ phần có kết luận xuống dưới màn hình — mà đây là khối CHỈ ĐỌC,
- *  không có việc gì để làm, nên nó không đáng chiếm chỗ đó. Chia đôi theo THỨ TỰ
- *  (không xen kẽ) để cụm nào vẫn ra cụm đó khi đọc dọc từng cột. */
+/** BẢNG KHAI BÁO — trường `declaration` (thông tin định danh, không có ngưỡng để đối
+ *  chiếu). HAI CỘT, chia theo thứ tự catalog (nửa đầu trái, nửa sau phải) để cụm nào
+ *  vẫn ra cụm đó khi đọc dọc; khối CHỈ ĐỌC nên không chiếm chỗ của phần có kết luận.
+ *  Sửa giá trị khai báo đọc sai: dùng bảng trường bên dưới (tab "Khai báo"). */
 function DeclTable({ rows }: { rows: MRow[] }) {
   const half = Math.ceil(rows.length / 2);
   const cols = [rows.slice(0, half), rows.slice(half)].filter((c) => c.length);
@@ -644,11 +613,7 @@ function DeclTable({ rows }: { rows: MRow[] }) {
   );
 }
 
-/** HÀNG CHIP LỌC — theo NGUỒN TÀI LIỆU và theo TRẠNG THÁI.
- *  Người duyệt hồ sơ làm việc theo TỪNG TÀI LIỆU MỘT (mở file nào thì rà mục của
- *  file đó), nên lọc theo nguồn khớp đúng thói quen; ba lọc trạng thái đưa thẳng
- *  tới chỗ cần sửa thay vì bắt dò giữa 65 dòng. Dữ liệu lọc lấy từ
- *  `field_source_docs` + độ tin cậy + kết quả so sánh 2 tài liệu. */
+/** HÀNG CHIP LỌC theo TRẠNG THÁI — đưa thẳng tới chỗ cần sửa thay vì bắt dò cả bảng. */
 function FilterChips({ rows, value, onChange }: {
   rows: MRow[]; value: Filt; onChange: (f: Filt) => void;
 }) {
@@ -668,7 +633,7 @@ function FilterChips({ rows, value, onChange }: {
             onClick={() => onChange(it.id)}
             className={"cursor-pointer rounded-full border px-2.5 py-1 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 " +
               (on ? "border-blue-600 bg-blue-600 text-white"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-blue-400")}>
+                  : "border-slate-200 bg-surface text-slate-600 hover:border-blue-400")}>
             {it.label}
             <span className={"ml-1.5 rounded-full px-1.5 py-px text-[11px] " +
               (on ? "bg-white/25" : "bg-slate-100")}>{n}</span>
@@ -679,11 +644,9 @@ function FilterChips({ rows, value, onChange }: {
   );
 }
 
-/** THANH ĐỘ PHỦ KIỂM TRA — "sẽ kiểm tra 38/42 trường".
+/** THANH ĐỘ PHỦ KIỂM TRA — "sẽ kiểm tra 8/10 trường".
  *
- *  KHÔNG bắt người dùng tự bấm ✓ từng ô để đánh dấu "đã rà": thao tác đó không đổi
- *  gì trong kết quả kiểm tra (chỉ là ghi chú cho chính mình), và 65 lần bấm để đổi
- *  lấy một con số là cái giá quá đắt. Con số được TÍNH: đếm
+ *  Con số được TÍNH, không bắt người dùng tự đánh dấu: đếm
  *  đúng những trường sắp được đem đi đối chiếu (có giá trị + đang được tick chọn)
  *  trên tổng số trường CÓ THỂ kiểm. Nó nói được điều hữu ích hơn hẳn "tôi đã nhìn
  *  chưa": lượt kiểm tra này phủ được bao nhiêu phần hồ sơ. */
@@ -696,7 +659,7 @@ function CheckedBar({ done, total }: { done: number; total: number }) {
       </span>
       <span className="h-2 w-28 overflow-hidden rounded-full bg-slate-200">
         <span className="block h-full rounded-full transition-all duration-300"
-          style={{ width: `${pct}%`, backgroundColor: pct === 100 ? "#16a34a" : "#2563eb" }} />
+          style={{ width: `${pct}%`, backgroundColor: pct === 100 ? "var(--p-green-600)" : "var(--p-blue-600)" }} />
       </span>
       <span className="text-[12px] text-slate-500">{pct}%</span>
     </div>
@@ -704,13 +667,9 @@ function CheckedBar({ done, total }: { done: number; total: number }) {
 }
 
 /**
- * HÀNG 3 THẺ NHÓM — bố cục dạng CỘT, lấy từ mẫu `DesignInterface` (và khớp trang 3).
- *
- * Ba nhóm nằm CẠNH NHAU trên một hàng: đọc một lượt thấy toàn cảnh (mỗi nhóm bao
- * nhiêu trường, bao nhiêu còn trống / tin cậy thấp), rồi CHỈ nhóm đang chọn
- * mới trải bảng ra bên dưới, trọn bề ngang. Ba dải ngang xếp chồng thì mở cả ba là
- * trang dài hàng nghìn pixel và tiêu đề nhóm trôi khỏi tầm mắt, còn gập hết thì phải
- * nhớ nhóm nào có gì.
+ * HÀNG THẺ NHÓM — mỗi MỤC của bộ trường một thẻ, nằm cạnh nhau trên một hàng: đọc
+ * một lượt thấy toàn cảnh (mỗi nhóm bao nhiêu trường, bao nhiêu còn trống / tin cậy
+ * thấp), rồi CHỈ nhóm đang chọn mới trải bảng ra bên dưới, trọn bề ngang.
  */
 function GroupTabs({ tabs, active, onPick }: {
   tabs: { id: string; title: string; rows: MRow[] }[];
@@ -721,7 +680,7 @@ function GroupTabs({ tabs, active, onPick }: {
     // đang có, nên hàng tab trải kín bề ngang thẻ; lưới cố định 3 cột cho 2 tab để lại
     // một khoảng trống rộng bằng cả một tab ở mép phải.
     <div className={"grid items-stretch gap-2 "
-      + (tabs.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+      + (tabs.length > 3 ? "sm:grid-cols-4" : tabs.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
       {tabs.map((tb) => {
         const on = tb.id === active;
         const has = tb.rows.filter((r) => r.has).length;
@@ -733,13 +692,13 @@ function GroupTabs({ tabs, active, onPick }: {
           // Màu CỦA TAB nói đúng một điều: đang chọn hay không (xám -> xanh). Màu nhận
           // dạng nhóm nằm ở dải tiêu đề của bảng bên dưới, nơi mỗi lúc chỉ một nhóm hiện.
           <button key={tb.id} type="button" onClick={() => onPick(tb.id)}
-            className={"flex h-full flex-col overflow-hidden rounded-lg border bg-white text-left transition-colors " +
+            className={"flex h-full flex-col overflow-hidden rounded-lg border bg-surface text-left transition-colors " +
               (on ? "border-blue-600" : "border-slate-200 hover:border-blue-400")}>
             <div className={"flex items-center gap-2 px-3 py-2 text-[13px] font-semibold transition-colors " +
               (on ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-600")}>
               <span className="min-w-0 truncate">{tb.title}</span>
               <span className={"ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs " +
-                (on ? "bg-white/25" : "bg-white text-slate-500")}>
+                (on ? "bg-white/25" : "bg-surface text-slate-500")}>
                 {has}/{tb.rows.length}
               </span>
             </div>
@@ -765,7 +724,7 @@ function GroupTabs({ tabs, active, onPick }: {
 }
 
 /** Đầu một NHÓM TRƯỜNG — dải màu + số trường đã có giá trị.
- *  Cả ba nhóm dùng CHUNG một màu xanh (`--c-group-bar` trong index.css): tên nhóm đã
+ *  Mọi nhóm dùng CHUNG một màu xanh (`--c-group-bar` trong index.css): tên nhóm đã
  *  đủ định danh, không cần thêm ba màu bão hòa tranh nhau sự chú ý. */
 function GroupHead({ title, has, total, right }: {
   title: string; has: number; total: number; right?: React.ReactNode;
@@ -782,67 +741,7 @@ function GroupHead({ title, has, total, right }: {
   );
 }
 
-/** Tiêu đề một BÊN CHI TRẢ + số khoản đã có giá trị. */
-function PayerHead({ title, rows }: { title: string; rows: MRow[] }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 px-3 py-2 text-[13px] font-semibold text-slate-700">
-      <span className="min-w-0">{title}</span>
-      <span className="ml-auto shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-        {rows.filter((r) => r.has).length}/{rows.length}
-      </span>
-    </div>
-  );
-}
-
-/** BẢNG SO CHI PHÍ — hai bên chi trả, khoản CÙNG TÊN nằm ngang nhau.
- *
- *  Hai bên GHÉP CẶP theo khái niệm khoản chi, không phải hai bảng riêng xếp theo thứ
- *  tự của chính mình: bảng riêng thì "Tiền dịch vụ" của hai bên có khi cách nhau bốn
- *  dòng, trong khi cả bảng sinh ra chỉ để trả lời một câu — bên nào trả khoản nào. */
-function PayerCompare({
-  worker, partner, locked, onHover, editApi, focusKey, oneCol,
-}: {
-  worker: MRow[]; partner: MRow[];
-  locked: boolean;
-  onHover?: (q: string, docId?: string, at?: { x: number; y: number }) => void;
-  editApi?: EditApi; focusKey?: string;
-  /** Khung OCR mở -> cửa sổ trái hẹp, xếp CHỒNG hai bên cho khỏi vỡ. */
-  oneCol?: boolean;
-}) {
-  const wTitle = translate("rv.costWorker");
-  const pTitle = translate("rv.costPartner");
-  if (oneCol) {
-    return (
-      <>
-        <PayerHead title={wTitle} rows={worker} />
-        <FieldTable rows={worker} locked={locked} onHover={onHover} editApi={editApi}
-          focusKey={focusKey} valueCol={translate("rv.costCol")} oneCol />
-        <div className="border-t border-slate-200" />
-        <PayerHead title={pTitle} rows={partner} />
-        <FieldTable rows={partner} locked={locked} onHover={onHover} editApi={editApi}
-          focusKey={focusKey} valueCol={translate("rv.costCol")} oneCol />
-      </>
-    );
-  }
-  return (
-    <>
-      <div className="grid grid-cols-2 items-stretch">
-        <PayerHead title={wTitle} rows={worker} />
-        <PayerHead title={pTitle} rows={partner} />
-      </div>
-      {/* GHÉP THEO CHỈ SỐ sau khi đã xếp hai bên cùng thứ tự khái niệm — KHÔNG chèn
-          ô rỗng. Chèn ô rỗng cho khoản chỉ có ở một bên thì mọi khoản đều thẳng
-          hàng theo tên, nhưng để lại các mảng trắng giữa bảng; hai bên ở đây lệch
-          nhau đúng hai khoản nên đổi lại chỉ mất thẳng hàng ở phần giữa. */}
-      <PairedTable
-        pairs={zipCosts(worker, partner, (r) => r.key)}
-        leftHead={translate("rv.costCol")} rightHead={translate("rv.costCol")}
-        locked={locked} onHover={onHover} editApi={editApi} focusKey={focusKey} />
-    </>
-  );
-}
-
-/** Một Ô TRỤC ở dòng 1 (khu vực · quốc gia · loại hình · tài liệu). */
+/** Một Ô TRỤC ở thẻ thông tin hồ sơ (loại hồ sơ · ngày ký · số tài liệu). */
 function AxisCell({ label, value }: { label: string; value: string }) {
   // Nhãn TRÁI ↔ giá trị PHẢI trên cùng một dòng — khớp `Axis` của trang 3.
   return (
@@ -853,9 +752,8 @@ function AxisCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** MỘT NHÓM TRƯỜNG: dải tiêu đề + bảng. Dùng chung cho "Thông tin chung" và "Chi
- *  tiết hợp đồng". Cùng một loại nội dung thì phải cùng một bảng: mỗi nhóm một
- *  component riêng là hai tab cạnh nhau lệch cột và lệch chiều cao dòng. */
+/** MỘT NHÓM TRƯỜNG: dải tiêu đề + bảng — mọi nhóm dùng chung một bảng để các tab
+ *  không lệch cột và lệch chiều cao dòng. */
 function GroupBlock({
   title, rows, locked, onHover, editApi, focusKey, oneCol,
 }: {
@@ -874,87 +772,43 @@ function GroupBlock({
 }
 
 /**
- * THẺ "KIỂM TRA THÔNG TIN TRÍCH XUẤT" — TRỤC của lượt kiểm tra + các mục KHAI BÁO +
- * vai trò tài liệu + khoản chi phí lạ.
+ * THẺ "KIỂM TRA THÔNG TIN TRÍCH XUẤT" — loại hồ sơ của lượt kiểm tra + các mục KHAI BÁO.
  */
 function InfoCard({
-  meta, numDocs, feeFlags, dossier, declRows,
+  meta, numDocs, signedDate, declRows,
 }: {
   meta?: SessionDocument["extracted_json"]["contract_meta"];
-  numDocs: number; feeFlags: InputFlag[]; dossier?: DossierAnalysis;
+  numDocs: number;
+  /** Ngày ký đang dùng để lọc hiệu lực văn bản quy định ("" = chưa đọc được). */
+  signedDate: string;
   /** Trường KHAI BÁO — hiện ngay trong thẻ này thay vì thành một tab riêng. */
   declRows: MRow[];
 }) {
   const t = useT();
-  // Danh mục do backend gửi dạng "English (Tiếng Việt)" — hiện ĐÚNG bản của ngôn ngữ
-  // đang chọn, y như trang 1 lúc người dùng chọn — không in cả hai bản.
-  const cat = useCatLabel();
   return (
     <div className={CARD + " mb-4"}>
       <h2>{t("rv.infoTitle")}</h2>
       <p className="mt-0 text-sm text-slate-500">{t("rv.infoLead")}</p>
 
       {/* THÔNG TIN HỒ SƠ — trình bày GIỐNG TRANG 3: khối có viền, tiêu đề nhỏ in hoa,
-          bên trong là lưới nhãn↔giá trị 2 cột. Cùng một thông tin mà hai trang vẽ hai
-          kiểu thì người đọc phải nhận diện lại ở mỗi bước. */}
+          bên trong là lưới nhãn↔giá trị 2 cột. */}
       <div className="mt-3 rounded-lg border border-slate-200 p-3">
         <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-slate-500">
           {t("rs.metaTitle")}
         </div>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
-          {/* Ô đầu là KHU VỰC (tầng cha), không phải `market_name`: thị trường một
-              nước (Nhật Bản) làm ô đó trùng luôn ô Quốc gia. */}
-          <AxisCell label={t("rv.axisRegion")} value={cat(meta?.region_name || meta?.market_name || "")} />
-          <AxisCell label={t("rv.axisCountry")} value={cat(meta?.country_name || "")} />
-          <AxisCell label={t("rv.axisJobType")} value={jobTypeText(cat(meta?.job_type_name || ""), meta?.job_title)} />
+          <AxisCell label={t("rv.axisFieldSet")} value={meta?.field_set_name || meta?.field_set_id || ""} />
           <AxisCell label={t("rv.axisDocs")} value={String(numDocs)} />
+          {meta?.signed_date_field ? (
+            <AxisCell label={t("rv.axisSignedDate")} value={signedDate} />
+          ) : null}
         </div>
-        {/* TRƯỜNG KHAI BÁO nằm NGAY TRONG thẻ thông tin hồ sơ, không còn là một tab
-            riêng: chúng là thông tin ĐỊNH DANH của bộ hồ sơ (doanh nghiệp dịch vụ,
-            bên tiếp nhận, số công văn, quy mô lao động) — pháp luật không đặt ngưỡng
-            nào để đối chiếu, nên đặt cạnh hai tab có kết luận chỉ khiến người duyệt
-            đi tìm kết luận ở nơi không bao giờ có. */}
         {declRows.length ? (
           <div className="mt-3 border-t border-slate-200 pt-3">
             <DeclTable rows={declRows} />
           </div>
         ) : null}
       </div>
-
-      {/* VAI TRÒ TỪNG TÀI LIỆU — ngay dưới thông tin hồ sơ, như trang 3. */}
-      {dossier ? (
-        <div className="mt-3"><DossierPanel dossier={dossier} flat /></div>
-      ) : null}
-
-      {/* KHOẢN CHI PHÍ LẠ — bảng 2 cột đánh dấu màu, không phải dải thông báo: một
-          dòng cảnh báo trôi giữa các cảnh báo khác không nói được khoản nào, ở đâu. */}
-      {feeFlags.length ? (
-        <div className="mt-4 overflow-hidden rounded-lg border-2 border-orange-400">
-          <div className="flex items-center gap-1.5 bg-orange-100 px-3 py-1.5 text-[13px] font-bold text-orange-900">
-            <IconWarning className="h-4.5 w-4.5 shrink-0" />{t("rv.feeTitle")} ({feeFlags.length})
-          </div>
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr>
-                <th className={TH + " w-2/5"}>{t("rv.feeSign")}</th>
-                <th className={TH}>{t("rv.feeSnippet")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {feeFlags.map((f, i) => (
-                <tr key={i} className="bg-orange-50">
-                  <td className="border-t border-orange-300 px-3 py-1.5 align-top font-medium text-orange-900">
-                    {f.message}
-                  </td>
-                  <td className="border-t border-orange-300 px-3 py-1.5 align-top text-slate-800">
-                    {f.snippet ? `“${f.snippet}”` : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -977,23 +831,22 @@ function MergedTables({
   ocrOpen: boolean;
 }) {
   const t = useT();
-  // HAI tab. "Thông tin chung" và "Chi tiết hợp đồng" đã gộp thành ĐIỀU KHOẢN: cả hai
-  // vốn là các điều khoản của cùng một hợp đồng, chia đôi chỉ bắt người duyệt nhớ
-  // điều khoản nào nằm tab nào. Trường KHAI BÁO không còn ở đây — chúng lên thẻ
-  // thông tin hồ sơ, nơi không ai đi tìm kết luận.
-  const tabs = [
-    { id: "check", title: t("rv.termsTitle"), rows: rows.filter((r) => r.group === "check") },
-    { id: "payer", title: t("rv.costs"), rows: rows.filter((r) => r.group === "payer") },
-  ];
+  // MỖI MỤC (`section`) của bộ trường một tab; bộ trường không chia mục -> một tab
+  // "Trường kiểm tra". Trường KHAI BÁO đứng ở tab cuối: chúng đã hiện (chỉ đọc) trên thẻ
+  // thông tin hồ sơ, tab này là chỗ SỬA khi OCR đọc sai.
+  const checkRows = rows.filter((r) => r.group !== "declaration");
+  const sections = Array.from(new Set(checkRows.map((r) => r.section)));
+  const tabs = sections.map((sec) => ({
+    id: `s:${sec}`, title: sec || t("rv.termsTitle"),
+    rows: checkRows.filter((r) => r.section === sec),
+  }));
+  const decl = rows.filter((r) => r.group === "declaration");
+  if (decl.length) tabs.push({ id: "decl", title: t("rv.declTitle"), rows: decl });
+  const activeTab = tabs.find((tb) => tb.id === tab) ?? tabs[0];
 
-  // CHIP LỌC THUỘC VỀ TAB ĐANG MỞ — chip đếm đúng phạm vi đang hiện. Đếm trên MỌI
-  // trường kiểm tra (check + payer) trong khi bảng bên dưới chỉ hiện một nhóm thì con
-  // số trên chip không khớp số dòng nhìn thấy, và bấm "Chưa có giá trị" ở tab này lại
-  // đang đếm cả trường của tab kia.
-  const tabRows = tabs.find((tb) => tb.id === tab)?.rows ?? [];
+  // CHIP LỌC THUỘC VỀ TAB ĐANG MỞ — chip đếm đúng phạm vi đang hiện.
+  const tabRows = activeTab?.rows ?? [];
   const shown = tabRows.filter((r) => matchFilt(r, filt));
-  const payerRecv = shown.filter((r) => r.key.includes("doi_tac"));
-  const payerWorker = shown.filter((r) => !r.key.includes("doi_tac"));
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -1022,31 +875,15 @@ function MergedTables({
         ) : null}
       </div>
 
-      {/* BA THẺ NHÓM dạng cột — chọn nhóm nào thì bảng nhóm đó trải ra bên dưới. */}
-      <GroupTabs active={tab} onPick={onTab} tabs={tabs} />
+      {/* THẺ NHÓM dạng cột — chọn nhóm nào thì bảng nhóm đó trải ra bên dưới. */}
+      {tabs.length > 1 ? <GroupTabs active={activeTab?.id ?? ""} onPick={onTab} tabs={tabs} /> : null}
 
-      {/* 1) ĐIỀU KHOẢN — mọi trường có đối chiếu quy định. */}
-      {tab === "check" ? (
+      {activeTab ? (
         shown.length ? (
           <GroupBlock
-            title={t("rv.termsTitle")}
+            title={activeTab.title}
             rows={shown} locked={locked}
             onHover={onHover} editApi={editApi} focusKey={focusKey} oneCol={ocrOpen} />
-        ) : <EmptyFilter />
-      ) : null}
-
-      {/* 3) CHI PHÍ & PHÍ DỊCH VỤ — 2 tiểu mục theo BÊN CHI TRẢ */}
-      {tab === "payer" ? (
-        shown.length ? (
-          <div className="overflow-hidden rounded-lg border border-slate-200">
-            <GroupHead title={t("rv.costs")}
-              has={shown.filter((r) => r.has).length} total={shown.length} />
-            {/* HAI BÊN CHI TRẢ đặt cạnh nhau, khoản CÙNG TÊN nằm ngang nhau — hai
-                VẾ của cùng một phép so. Khung OCR mở -> cửa sổ trái hẹp, xếp chồng. */}
-            <PayerCompare worker={payerWorker} partner={payerRecv}
-              locked={locked} onHover={onHover} editApi={editApi}
-              focusKey={focusKey} oneCol={ocrOpen} />
-          </div>
         ) : <EmptyFilter />
       ) : null}
     </div>
@@ -1069,12 +906,10 @@ export default function Review() {
   const t = useT();
 
   const [docs, setDocs] = useState<SessionDocument[]>([]);
-  const [dossier, setDossier] = useState<DossierAnalysis | undefined>();
   const [ocrIdx, setOcrIdx] = useState(0);
   const [ocrOpen, setOcrOpen] = useState(false);
-  // Nhóm đang xem (bố cục 3 thẻ dạng cột) — mặc định "Chi tiết công việc", nhóm có
-  // nhiều việc phải xử lý nhất.
-  const [tab, setTab] = useState("check");
+  // Nhóm đang xem ("" = nhóm đầu tiên).
+  const [tab, setTab] = useState("");
   const [pageLoading, setPageLoading] = useState(true);
   const [hoverQuote, setHoverQuote] = useState("");
   const [filt, setFilt] = useState<Filt>("all");
@@ -1148,7 +983,6 @@ export default function Review() {
         .then(() => getDocuments(sessionId))
         .then((d) => {
           setDocs(d.documents || []);
-          setDossier(d.dossier);
           setEditRow(null);   // lưu xong -> ĐÓNG cửa sổ sửa
           notify("success", t("rv.saved"));
         })
@@ -1175,7 +1009,7 @@ export default function Review() {
   useEffect(() => {
     if (!sessionId) return;
     getDocuments(sessionId)
-      .then((d) => { setDocs(d.documents || []); setDossier(d.dossier); })
+      .then((d) => setDocs(d.documents || []))
       // `translate` chứ không phải hook `t`: effect này chỉ chạy khi đổi phiên, khai
       // thêm `t` vào deps sẽ khiến đổi ngôn ngữ nạp lại cả tài liệu.
       .catch((e) => { const m = friendly(e); setPageError(m); notify("error", translate("rv.pagePrefix") + m); })
@@ -1184,46 +1018,16 @@ export default function Review() {
 
   const locked = loading;
 
-  // Vai trò từng tài liệu (ưu tiên dossier; dự phòng theo tên file).
-  const roleMap = useMemo(() => {
-    const m: Record<string, string> = {};
-    for (const r of dossier?.roles || []) m[r.source_file] = r.role;
-    return m;
-  }, [dossier]);
-  const roleOf = (doc: SessionDocument): string => {
-    const r = roleMap[doc.source_file];
-    if (r) return r;
-    const f = (doc.source_file || "").toLowerCase();
-    if (f.includes("hợp đồng cung ứng") || f.includes("hop dong cung ung") || f.includes("bản sao hợp đồng")) return "hop_dong";
-    if (f.includes("đăng ký") || f.includes("dang ky")) return "dang_ky";
-    return "unknown";
-  };
+  const merged = useMemo(() => mergedRows(docs), [docs]);
 
-  // CHỈ dùng VĂN BẢN ĐĂNG KÝ (ưu tiên) + HỢP ĐỒNG CUNG ỨNG để trích/kiểm tra.
-  // Đăng ký xếp TRƯỚC vì đo trên hồ sơ thật: nó phủ 44/55 trường (80%) so với 17/55
-  // của hợp đồng cung ứng — biểu mẫu kê khai viết mỗi trường một dòng có nhãn, còn
-  // hợp đồng để giá trị lẫn trong câu văn điều khoản. Xem `report.py > _ROLE_ORDER`.
-  const coreDocs = useMemo(() => {
-    const ord: Record<string, number> = { dang_ky: 0, hop_dong: 1 };
-    const core = docs.filter((d) => ord[roleOf(d)] !== undefined);
-    const ordered = [...core].sort((a, b) => ord[roleOf(a)] - ord[roleOf(b)]);
-    return ordered.length ? ordered : docs;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docs, roleMap]);
-
-  // Thứ tự gộp KHỚP backend (merge_contracts): hợp đồng -> đăng ký -> tài liệu phụ
-  // (thư yêu cầu/ủy quyền CHỈ bù trường còn trống — nguồn tham khảo, không lấn át).
-  const orderedDocs = useMemo(() => {
-    const core = new Set(coreDocs);
-    return [...coreDocs, ...docs.filter((d) => !core.has(d))];
-  }, [docs, coreDocs]);
-
-  const merged = useMemo(
-    () => mergedRows(orderedDocs, (d) => roleOf(d) as DocRole),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [orderedDocs, roleMap],
-  );
-
+  // Đưa một trường vào tầm mắt: mở ĐÚNG tab chứa nó + bỏ bộ lọc (trường cần tới có
+  // thể đang nằm ở tab khác hoặc bị bộ lọc giấu đi).
+  const focusField = useCallback((key: string) => {
+    const r = merged.find((x) => x.key === key);
+    if (r) setTab(r.group === "declaration" ? "decl" : `s:${r.section}`);
+    setFilt("all");
+    setFocusKey(key);
+  }, [merged]);
 
   // ---- TÔ SÁNG CHIỀU NGƯỢC: dòng OCR -> trường ------------------------------
   // Chấm điểm theo TỪ (giống chiều xuôi trong OcrViewer, ngược đầu vào): dòng vừa bấm
@@ -1247,9 +1051,8 @@ export default function Review() {
       if (score > best) { best = score; bestKey = r.key; }
     }
     if (!bestKey) return notify("info", t("rv.noMatchField"));
-    setFilt("all");        // trường cần tới có thể đang bị bộ lọc giấu đi
-    setFocusKey(bestKey);
-  }, [merged, t]);
+    focusField(bestKey);
+  }, [merged, t, focusField]);
 
   // Cuộn tới trường vừa chọn rồi tự tắt điểm nhấn sau 4 giây.
   useEffect(() => {
@@ -1263,34 +1066,29 @@ export default function Review() {
   const allFlags = useMemo(() => {
     const s = new Set<string>();
     const out: InputFlag[] = [];
-    for (const d of coreDocs) {
+    for (const d of docs) {
       for (const f of d.extracted_json?.input_flags || []) {
-        // Cảnh báo SIGNED_DATE KHÔNG còn bị ẩn. Trước đây ẩn vì người dùng không có
-        // đường nào sửa ngày ký; nay sửa được ngay trên bảng (PATCH đồng bộ luôn
-        // `contract_meta`), nên giấu cảnh báo là giấu đúng thứ quyết định BỘ LUẬT nào
-        // được đem ra đối chiếu — hồ sơ vẫn ra kết quả, chỉ là đối chiếu sai căn cứ.
+        // Cảnh báo NGÀY KÝ không bị ẩn: ngày ký quyết định văn bản quy định nào còn
+        // hiệu lực để đối chiếu, và sửa được ngay trên bảng (PATCH trường ngày ký).
         const k = f.code + "|" + f.message;
         if (!s.has(k)) { s.add(k); out.push(f); }
       }
     }
     return out;
-  }, [coreDocs]);
-  // Cờ KHOẢN THU LẠ tách khỏi các cảnh báo còn lại: chúng có bảng riêng trên thẻ
-  // thông tin (kèm trích đoạn), không trộn vào dải thông báo chung nữa.
-  const isFeeFlag = (f: InputFlag) =>
-    ["PROHIBITED_FEE", "FEE_NOT_WHITELISTED"].includes(f.code || "");
-  const feeFlags = useMemo(() => allFlags.filter(isFeeFlag), [allFlags]);
-  const otherFlags = useMemo(() => allFlags.filter((f) => !isFeeFlag(f)), [allFlags]);
+  }, [docs]);
   // ---- ĐỘ PHỦ CỦA LƯỢT KIỂM TRA (tính, không phải người dùng tự đánh dấu) ----
   // Mẫu số CHỈ gồm trường CÓ THỂ kiểm: nhóm khai báo là thông tin định danh hồ sơ,
-  // pháp luật không đặt ngưỡng để đối chiếu — tính nó vào thì tỉ lệ vĩnh viễn dưới
-  // 100% và con số thôi nói lên điều gì.
+  // không có ngưỡng để đối chiếu — tính nó vào thì tỉ lệ vĩnh viễn dưới 100%.
   // Tử số = MỌI trường CÓ giá trị (auto chọn, không còn ô tick; trường trống bỏ qua).
   const checkable = merged.filter((r) => r.group !== "declaration");
   const checkableTotal = checkable.length;
   const checkedNow = checkable.filter((r) => r.has).length;
 
-  const meta = coreDocs[0]?.extracted_json?.contract_meta;
+  const meta = docs[0]?.extracted_json?.contract_meta;
+  // Ngày ký = giá trị (đã gộp) của trường ngày ký mà bộ trường khai.
+  const signedRow = meta?.signed_date_field
+    ? merged.find((r) => r.key === meta.signed_date_field) : undefined;
+  const signedDate = signedRow?.has ? fmtFieldValue(signedRow.value as never, "") : "";
 
   function onConfirm() {
     if (!sessionId) return;
@@ -1303,8 +1101,7 @@ export default function Review() {
     // vào chữ ký yêu cầu ở backend, nên thêm hoặc xóa một giá trị bất kỳ là chữ ký đổi
     // và báo cáo đã lưu hết dùng được — phải chạy lại LLM 7-20 phút cho một thay đổi
     // không liên quan. Lấy theo NHÓM (mọi trường ngoài nhóm khai báo) thì tập ổn định
-    // suốt phiên; backend vẫn tự bỏ qua trường trống vì nó chỉ hỏi LLM các trường có
-    // giá trị.
+    // suốt phiên; backend tự bỏ qua trường trống.
     const selectedKeys = merged.filter((r) => r.group !== "declaration").map((r) => r.key);
     notify("info", t("toast.startCheck"));
     // Chạy qua KHO TOÀN CỤC: SSE + request sống ngoài component -> chuyển trang
@@ -1330,24 +1127,24 @@ export default function Review() {
       {/* Ô xem trước văn bản OCR — `position: fixed` nên phải nằm ngoài mọi ô bảng.
           Tắt khi đang chạy kiểm tra (locked) và khi đang mở cửa sổ sửa: lúc đó con
           trỏ không còn ở bảng, ô xem trước chỉ che mất nội dung. */}
-      {!locked && !editRow && peek ? (
+      {!locked && !editRow && !ocrOpen && peek ? (
         <OcrPeek doc={docs.find((d) => d.doc_id === peek.docId)}
           quote={peek.quote} x={peek.x} y={peek.y} />
       ) : null}
 
       <InfoCard
-        meta={meta} numDocs={docs.length} feeFlags={feeFlags} dossier={dossier}
+        meta={meta} numDocs={docs.length} signedDate={signedDate}
         declRows={merged.filter((r) => r.group === "declaration")}
       />
 
       {error ? <Alert kind="error">{error}</Alert> : null}
 
       <div className={CARD}>
-        {otherFlags.length ? (
+        {allFlags.length ? (
           <div className="mb-3">
             <FlagList
-              flags={otherFlags}
-              onPickField={(k) => { setFilt("all"); setFocusKey(k); }}
+              flags={allFlags}
+              onPickField={focusField}
             />
           </div>
         ) : null}
@@ -1360,9 +1157,9 @@ export default function Review() {
             `min-h-0` là chi tiết bắt buộc: mặc định `min-height: auto` của flex/grid
             item khiến khung nở theo nội dung thay vì cuộn, và `overflow-auto` thành
             vô tác dụng. */}
-        <div className={ocrOpen ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)]" : ""}>
-          {/* CỬA SỔ TRÁI — bảng trường (3 thẻ nhóm xếp hàng ngang ở trên đầu). */}
-          <div className={ocrOpen ? "min-w-0 rounded-lg border border-slate-200 p-3" : "min-w-0"}>
+        <div>
+          {/* Bảng trường chiếm trọn bề ngang; văn bản đọc được mở thành CỬA SỔ NỔI NHỎ. */}
+          <div className="min-w-0">
             <MergedTables
               onHover={onHoverField}
               rows={merged}
@@ -1374,7 +1171,7 @@ export default function Review() {
               tab={tab} onTab={(id) => { setTab(id); setFilt("all"); }}
               checkedNow={checkedNow} checkableTotal={checkableTotal}
               onToggleOcr={ocrOpen ? undefined : () => setOcrOpen(true)}
-              ocrOpen={ocrOpen}
+              ocrOpen={false}
             />
           </div>
 
@@ -1382,31 +1179,21 @@ export default function Review() {
               đề): nút điều khiển một khung thì thuộc về chính khung đó, không phải
               một hàng công cụ ở nơi khác. */}
           {ocrOpen ? (
-            // CHIỀU CAO KHUNG OCR = CHIỀU CAO CỘT BẢNG, không hơn.
-            // `h-full` không đủ: ô lưới vẫn tự nở theo nội dung, nên văn bản OCR dài
-            // hơn bảng thì CHÍNH NÓ kéo dài hàng lưới — đúng thứ vừa muốn tránh.
-            // Cách chắc chắn: ô lưới chỉ chứa phần tử ĐỊNH VỊ TUYỆT ĐỐI, nên chiều
-            // cao nội tại của nó bằng 0; chiều cao hàng do CỘT BẢNG quyết định, còn
-            // `absolute inset-0` căng khung OCR vừa khít hàng đó rồi cuộn bên trong.
-            <div className="relative min-h-96 min-w-0">
-              <div className="absolute inset-0 flex flex-col rounded-lg border border-slate-200 p-3">
-                <div className="mb-2 flex items-center justify-end">
-                  {/* Chỉ biểu tượng ✕ — cùng lối với nút MỞ ở hàng chip. */}
-                  <button type="button" className={BTN + " px-2 py-1.5"}
-                    onClick={() => setOcrOpen(false)} title={t("rv.ocrSideClose")}
-                    aria-label={t("rv.ocrSideClose")}>
-                    <IconX className="h-4.5 w-4.5" />
-                  </button>
-                </div>
-                {/* KHÔNG `overflow-auto` ở đây nữa: OcrViewer tự cuộn BÊN TRONG (tiêu đề
-                    cố định, chỉ dòng văn bản cuộn). Bọc `flex min-h-0 flex-1` để
-                    OcrViewer nhận đúng chiều cao còn lại rồi cuộn trong khung của nó. */}
-                <div className="flex min-h-0 flex-1">
-                  {/* Đang kiểm tra (locked) -> KHÔNG tô sáng: tính khi render, không cần effect. */}
-                  <OcrViewer docs={docs} idx={Math.min(ocrIdx, Math.max(0, docs.length - 1))} setIdx={setOcrIdx}
-                    hoverQuote={locked ? "" : hoverQuote}
-                    onPickLine={locked ? undefined : onPickLine} />
-                </div>
+            // CỬA SỔ NỔI NHỎ góc phải dưới: KHÔNG phủ tối trang, nên di chuột vào giá trị
+            // vẫn tô sáng dòng trong cửa sổ, bấm dòng vẫn nhảy tới trường tương ứng.
+            <div className="rise-in fixed bottom-4 right-4 z-40 flex h-[min(560px,70vh)] w-[min(460px,calc(100vw-32px))] flex-col rounded-2xl border border-slate-300 bg-surface p-3 shadow-2xl"
+              role="dialog" aria-label={t("rv.ocrTitle")}>
+              <div className="mb-1 flex items-center justify-end">
+                <button type="button" className={BTN + " px-2 py-1.5"}
+                  onClick={() => setOcrOpen(false)} title={t("rv.ocrSideClose")}
+                  aria-label={t("rv.ocrSideClose")}>
+                  <IconX className="h-4.5 w-4.5" />
+                </button>
+              </div>
+              <div className="flex min-h-0 flex-1">
+                <OcrViewer docs={docs} idx={Math.min(ocrIdx, Math.max(0, docs.length - 1))} setIdx={setOcrIdx}
+                  hoverQuote={locked ? "" : hoverQuote}
+                  onPickLine={locked ? undefined : onPickLine} />
               </div>
             </div>
           ) : null}

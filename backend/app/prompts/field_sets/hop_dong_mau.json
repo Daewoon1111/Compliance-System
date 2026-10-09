@@ -1,0 +1,104 @@
+{
+  "display_name": "Hợp đồng (mẫu chung)",
+  "description": "Bộ trường MẪU để bắt đầu: các nội dung cơ bản của một hợp đồng. Sao chép rồi sửa trên trang Cấu hình để tạo bộ trường cho loại hồ sơ của bạn.",
+  "document_kind": "hợp đồng",
+  "jurisdiction": "VN",
+  "doc_types": [],
+  "start_anchor": "",
+  "signed_date_field": "ngay_ky",
+  "fields_catalog": {
+    "so_hop_dong": {
+      "label": "Số hợp đồng",
+      "label_alts": [
+        "Số"
+      ],
+      "value_type": "text",
+      "check_type": "declaration",
+      "max_len": 60,
+      "fill_hint": "Số hiệu ghi ở đầu hợp đồng, vd '15/2025/HĐDV'",
+      "check_aspect": "Hợp đồng có số hiệu để tra cứu."
+    },
+    "ngay_ky": {
+      "label": "Ngày ký",
+      "label_alts": [
+        "Hôm nay, ngày",
+        "Ký ngày"
+      ],
+      "value_type": "date",
+      "check_type": "declaration",
+      "fill_hint": "Ngày các bên ký hợp đồng",
+      "check_aspect": "Ngày ký dùng để chọn phiên bản quy định còn hiệu lực."
+    },
+    "ben_a": {
+      "label": "Bên A",
+      "value_type": "text",
+      "check_type": "declaration",
+      "max_len": 200,
+      "fill_hint": "Tên tổ chức/cá nhân là Bên A",
+      "check_aspect": "Thông tin bên giao kết."
+    },
+    "ben_b": {
+      "label": "Bên B",
+      "value_type": "text",
+      "check_type": "declaration",
+      "max_len": 200,
+      "fill_hint": "Tên tổ chức/cá nhân là Bên B",
+      "check_aspect": "Thông tin bên giao kết."
+    },
+    "gia_tri_hop_dong": {
+      "label": "Giá trị hợp đồng",
+      "label_alts": [
+        "Tổng giá trị hợp đồng"
+      ],
+      "value_type": "money",
+      "check_type": "regulated",
+      "fill_hint": "Số tiền kèm đơn vị, vd '120.000.000 VND'",
+      "check_aspect": "Giá trị hợp đồng phải ghi rõ số tiền và đơn vị tiền tệ, phù hợp quy định áp dụng."
+    },
+    "thoi_han": {
+      "label": "Thời hạn",
+      "label_alts": [
+        "Thời hạn hợp đồng",
+        "Thời hạn thực hiện"
+      ],
+      "value_type": "text",
+      "check_type": "regulated",
+      "max_len": 200,
+      "fill_hint": "Khoảng thời gian thực hiện hoặc hiệu lực của hợp đồng",
+      "check_aspect": "Thời hạn hợp đồng phải được xác định rõ và không trái quy định áp dụng."
+    },
+    "phuong_thuc_thanh_toan": {
+      "label": "Phương thức thanh toán",
+      "label_alts": [
+        "Thanh toán"
+      ],
+      "value_type": "text",
+      "check_type": "regulated",
+      "max_len": 300,
+      "fill_hint": "Cách thức, thời hạn thanh toán",
+      "check_aspect": "Phương thức thanh toán phải rõ ràng và phù hợp quy định áp dụng."
+    },
+    "giai_quyet_tranh_chap": {
+      "label": "Giải quyết tranh chấp",
+      "value_type": "text",
+      "check_type": "regulated",
+      "max_len": 300,
+      "fill_hint": "Cơ quan/cách thức giải quyết tranh chấp",
+      "check_aspect": "Hợp đồng phải có điều khoản giải quyết tranh chấp phù hợp quy định áp dụng."
+    },
+    "so_luong": {
+      "label": "Số lượng",
+      "value_type": "number",
+      "check_type": "positive_integer",
+      "fill_hint": "Số lượng hàng hóa/dịch vụ (nếu có)",
+      "check_aspect": "Số lượng phải là số nguyên dương."
+    }
+  },
+  "field_check_mode": {
+    "always_check": [
+      "gia_tri_hop_dong",
+      "thoi_han",
+      "giai_quyet_tranh_chap"
+    ]
+  }
+}

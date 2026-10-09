@@ -21,3 +21,12 @@ def _blocked(*_a, **_k):
 @pytest.fixture(autouse=True)
 def _no_heavy_model_loading(monkeypatch):
     monkeypatch.setattr(vintern, "_load_model", _blocked)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_app_settings(tmp_path, monkeypatch):
+    """Cài đặt người dùng (DPI, LLM, OCR, mốc thống kê) ghi vào tệp tạm — test không được
+    sửa `data/user_config/app_settings.json` thật của máy đang chạy."""
+    from app.store import app_settings
+
+    monkeypatch.setattr(app_settings, "SETTINGS_FILE", tmp_path / "app_settings.json")

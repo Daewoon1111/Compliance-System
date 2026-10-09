@@ -129,7 +129,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    app_name: str = "Hệ thống kiểm tra hợp đồng"
+    app_name: str = "Hệ thống trích xuất kiểm tra thông tin theo quy định"
 
     # CORS: danh sách origin ngăn cách dấu phẩy. Bỏ trống = CHỈ origin loopback
     # (http://localhost:*, http://127.0.0.1:*). KHÔNG dùng "*": khi đó mọi trang web mở
@@ -165,22 +165,26 @@ class Settings(BaseSettings):
     # CHỈ điền tên model đã `ollama pull` (xem `ollama list`). Bỏ trống -> ollama_model.
     extraction_model: str = "model1:latest"
     validation_model: str = "model2:latest"
+    # Model cho trình tạo BỘ KIỂM TRA từ mô tả bằng lời. Bỏ trống -> ollama_model (model
+    # đa dụng): model fine-tune cho trích xuất/kiểm tra hiểu kém yêu cầu tự do, ghép sai
+    # tiêu chí vào thông tin. Model đầu lỗi -> tự thử extraction_model.
+    draft_model: str = ""
     # Gửi kèm few-shot examples trong payload trích xuất. Model đã fine-tune thì đặt
     # llm_send_examples=false trong .env (model đã học format, tiết kiệm token).
     llm_send_examples: bool = True
     # Ollama runtime tuning (LOCAL): num_ctx đủ lớn để KHÔNG cắt cụt context dài
-    # (payload kiểm tra = rag_total_cap đoạn luật + extracted_fields — tăng
+    # (payload kiểm tra = rag_total_cap đoạn quy định + extracted_fields — tăng
     # rag_total_cap thì PHẢI tăng num_ctx theo); keep_alive giữ model nạp sẵn giữa
     # các lần gọi (tránh nạp lại mỗi request -> nhanh hơn trên máy không GPU).
     ollama_num_ctx: int = 16384
     # CỬA SỔ RIÊNG cho từng bước (0 = dùng ollama_num_ctx chung).
     # Hai bước KHÔNG cùng cỡ payload, nên cùng một num_ctx là sai ở cả hai đầu:
     #   · TRÍCH XUẤT gửi 1 tài liệu OCR + danh sách trường -> vài nghìn token.
-    #   · KIỂM TRA gửi rag_total_cap đoạn luật + toàn bộ trường đã trích + prompt
+    #   · KIỂM TRA gửi rag_total_cap đoạn quy định + toàn bộ trường đã trích + prompt
     #     đối chiếu -> DÀI GẤP NHIỀU LẦN, và đây mới là bước dễ bị cắt cụt.
     # Đo thực tế (`ollama ps`): model2 chạy ctx 8192 còn model1 chạy 16384 — đúng
     # ngược với nhu cầu. Cắt cụt ở bước kiểm tra KHÔNG báo lỗi: model vẫn trả JSON,
-    # chỉ là nó chưa đọc hết đoạn luật -> kết luận sai mà không ai biết.
+    # chỉ là nó chưa đọc hết đoạn quy định -> kết luận sai mà không ai biết.
     extraction_num_ctx: int = 8192
     # 24576 -> 12288 (22/07): cửa sổ phải VỪA payload thật, không phải càng to càng an
     # toàn. Ollama cấp phát KV buffer theo num_ctx ngay lúc nạp model, nên cửa sổ thừa
@@ -236,6 +240,12 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = str(BACKEND_DIR / "chroma_data")
     chroma_collection: str = "regulations"
 
+    # GIAO DIỆN ĐÃ BUILD (`npm run build --prefix frontend`). Có thư mục này thì backend
+    # tự phục vụ giao diện ở "/" — đây là cách BẢN ỨNG DỤNG chạy (desktop/launcher.py, kể
+    # cả bản trên USB): một tiến trình, một cổng, không cần Vite. Chưa build -> bỏ qua,
+    # bản web `npm run dev` vẫn chạy như cũ. Launcher ghi đè khóa này bằng biến môi trường.
+    frontend_dist: str = str(BACKEND_DIR.parent / "frontend" / "dist")
+
     # OCR = Vintern-1B-v3.5 (5CD-AI), mô hình thị giác-ngôn ngữ tiếng Việt chạy cục bộ.
     # REVISION GHIM: model dùng trust_remote_code, không ghim thì mã Python mới trên
     # Hugging Face tự chạy trên máy ở lần tải sau. Đổi revision = chủ động nâng cấp.
@@ -270,23 +280,23 @@ class Settings(BaseSettings):
     ocr_auto_rotate: bool = True
     # Trang đọc có độ tin cậy trung bình dưới ngưỡng này bị nghi lộn ngược -> thử 180°.
     ocr_rotate_conf_threshold: float = 0.72
-    # Neo cụm bắt đầu hợp đồng: chỉ giữ nội dung từ dòng chứa cụm này trở xuống
-    # (bỏ quốc hiệu/letterhead phía trên). So khớp bỏ dấu. "" = tắt. Không thấy -> giữ nguyên.
-    ocr_start_anchor: str = "HỢP ĐỒNG CUNG ỨNG LAO ĐỘNG"
+    # Neo cụm BẮT ĐẦU mặc định: chỉ giữ nội dung từ dòng chứa cụm này trở xuống (bỏ
+    # quốc hiệu/letterhead phía trên). So khớp bỏ dấu. "" = tắt. Không thấy -> giữ
+    # nguyên. Bộ trường khai `start_anchor` riêng thì bộ trường thắng.
+    ocr_start_anchor: str = ""
     # Số dòng GIỮ LẠI ngay TRÊN dòng neo. Khối tiêu ngữ nằm trên tiêu đề văn bản, mà
-    # "Số: 114/NHHK-2025" và "…, ngày 04 tháng 11 năm 2025" lại ở trong khối đó — cắt
-    # phẳng tại tiêu đề là mất nguồn duy nhất của Số công văn / Ngày công văn.
+    # "Số: 114/ABC-2025" và "…, ngày 04 tháng 11 năm 2025" lại ở trong khối đó — cắt
+    # phẳng tại tiêu đề là mất nguồn duy nhất của số hiệu và ngày văn bản.
     ocr_start_anchor_lookback: int = 12
     # Neo cụm KẾT THÚC: CẮT BỎ mọi dòng TỪ dòng chứa cụm này trở xuống (khối chữ ký/
     # con dấu ở cuối văn bản — vùng hay dính dấu mộc, quốc huy triện, chữ ký số).
     # Nhiều cụm ngăn cách '|', lấy cụm XUẤT HIỆN SỚM NHẤT. So khớp bỏ dấu. "" = TẮT.
-    # MẶC ĐỊNH TẮT: cụm "đại diện bên/ký tên" cũng xuất hiện ở KHỐI CÁC BÊN đầu hợp đồng
+    # MẶC ĐỊNH TẮT: cụm "đại diện bên/ký tên" cũng xuất hiện ở KHỐI CÁC BÊN đầu văn bản
     # ('ĐẠI DIỆN BÊN A ...') -> bật bừa sẽ cắt nhầm gần hết văn bản -> thiếu trường.
-    # Cụm chỉ được tính khi ĐỨNG ĐẦU DÒNG (xem `ocr.text`): "…chấm dứt hiệu lực của hợp
-    # đồng" giữa văn bản không được cắt cụt phần sau.
-    ocr_end_anchor: str = "nơi nhận:|chữ ký của các bên"
-    # Dừng OCR sớm: sau mỗi file, nếu đã trích đủ các trường BẮT BUỘC (có rule regex)
-    # thì không OCR các file còn lại. Tắt: ocr_stop_when_enough=false.
+    # Cụm chỉ được tính khi ĐỨNG ĐẦU DÒNG (xem `ocr.text`). Vd: "nơi nhận:|chữ ký của các bên"
+    ocr_end_anchor: str = ""
+    # Dừng OCR sớm: tệp không có lớp chữ được đọc từng trang; đã trích đủ các trường BẮT
+    # BUỘC của bộ trường thì dừng đọc các trang còn lại. Tắt: ocr_stop_when_enough=false.
     ocr_stop_when_enough: bool = True
 
     # --- ĐỌC LỚP VĂN BẢN CÓ SẴN thay vì OCR (xem domain/documents/textlayer.py) ---
@@ -308,24 +318,22 @@ class Settings(BaseSettings):
     ocr_text_layer_min_agreement: float = 0.5
 
     # Embedding (SentenceTransformers; fallback ONNX cùng model).
-    # Mặc định model TIẾNG VIỆT cho ngữ cảnh pháp lý. ĐỔI model -> PHẢI seed lại
+    # Mặc định model TIẾNG VIỆT. ĐỔI model -> PHẢI seed lại
     # (npm run seed) vì vector cũ khác không gian. Muốn nhẹ/không tải model VN thì đặt
     # trong .env: embedding_model=sentence-transformers/all-MiniLM-L6-v2
     embedding_model: str = "bkai-foundation-models/vietnamese-bi-encoder"
 
-    # Reranker (CrossEncoder) — sắp lại các đoạn luật sau truy vấn để tăng độ chính xác.
+    # Reranker (CrossEncoder) — sắp lại các đoạn quy định sau truy vấn để tăng độ chính xác.
     # BẬT MẶC ĐỊNH: giữ ít đoạn (rag_total_cap) nhưng SÁT NGHĨA nhất. Lần đầu tự tải
     # model (~1GB); không tải được -> tự bỏ qua (sắp theo khoảng cách). Tắt: use_reranker=false
     use_reranker: bool = True
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
-    # RAG: số đoạn luật TỐI ĐA gửi cho LLM đối chiếu (1 lần gọi). Giảm 32->16->10->8:
-    # bộ lọc thị trường (`market_id` trong _where_clause) đã loại điều khoản của nước
-    # khác ngay ở tầng truy vấn, nên số đoạn còn lại đều SÁT nghĩa — giữ thêm chỉ tốn
-    # token. Phần bắt buộc (2 đoạn/trường) LUÔN được giữ dù cap nhỏ (không mất phủ
-    # trường nào). Đây là nguồn token LỚN NHẤT của payload kiểm tra.
+    # RAG: số đoạn quy định TỐI ĐA gửi cho mô hình đối chiếu (1 lần gọi). Phần bắt buộc
+    # (2 đoạn/trường) LUÔN được giữ dù cap nhỏ (không mất phủ trường nào). Đây là nguồn
+    # token LỚN NHẤT của payload kiểm tra.
     rag_total_cap: int = 8
-    # Số ký tự giữ lại của MỖI đoạn luật khi đưa vào prompt. Đoạn dài (điều luật nhiều
+    # Số ký tự giữ lại của MỖI đoạn quy định khi đưa vào prompt. Đoạn dài (điều luật nhiều
     # khoản) chiếm token gấp nhiều lần đoạn ngắn mà phần đối chiếu thật chỉ nằm ở vài
     # câu đầu. Trích dẫn hiển thị cho người dùng lấy từ chunk GỐC (reconcile), không
     # bị cắt theo số này.
@@ -349,7 +357,7 @@ def ensure_admin_token(s: Settings | None = None) -> str:
     """Bảo đảm luôn có mã quản trị: `.env` -> tệp đã sinh trước -> sinh mới rồi lưu.
 
     Mã trống từng có nghĩa là TẮT xác thực, tức mọi trang web mở trong trình duyệt của
-    người dùng gọi được /admin/* (sửa văn bản luật, xóa nhật ký). Không còn chế độ đó."""
+    người dùng gọi được /admin/* (sửa văn bản quy định, xóa nhật ký). Không còn chế độ đó."""
     import secrets  # noqa: PLC0415
 
     s = s or settings
@@ -363,7 +371,7 @@ def ensure_admin_token(s: Settings | None = None) -> str:
         with contextlib.suppress(OSError):
             ADMIN_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
             ADMIN_TOKEN_FILE.write_text(token, encoding="utf-8")
-            # Mã này mở được toàn bộ /admin/* (sửa văn bản luật, xóa nhật ký). Mặc
+            # Mã này mở được toàn bộ /admin/* (sửa văn bản quy định, xóa nhật ký). Mặc
             # định umask cho tệp quyền đọc cho MỌI tài khoản trên máy; hạ về chỉ chủ
             # sở hữu. Trên Windows chmod gần như vô hiệu — chấp nhận, POSIX thì có tác dụng.
             os.chmod(ADMIN_TOKEN_FILE, 0o600)
@@ -385,10 +393,8 @@ class DocSelection(BaseModel):
 class ValidateRequest(BaseModel):
     """Thân request của bước kiểm tra.
 
-    KHÔNG còn `signed_date_override`. Ngày ký quyết định LUẬT NÀO còn hiệu lực để đối
-    chiếu, nên nó phải có ĐÚNG MỘT đường sửa: trường `ngay_ky_hop_dong` trên trang
-    soát (PATCH .../fields). Đường thứ hai từng tồn tại ở đây nhưng không giao diện
-    nào gửi, nên nó vừa là mã chết vừa là chỗ để hai giá trị lệch nhau.
+    Ngày ký quyết định QUY ĐỊNH NÀO còn hiệu lực để đối chiếu, nên nó có ĐÚNG MỘT đường
+    sửa: trường ngày ký của bộ trường trên trang soát (PATCH .../fields).
 
     `progress_id`: khóa SSE tiến độ do CLIENT tự sinh, MỖI LƯỢT MỘT KHÓA MỚI — giống
     bước tải lên. Trước đây bước kiểm tra dùng thẳng `session_id` làm khóa; bản ghi

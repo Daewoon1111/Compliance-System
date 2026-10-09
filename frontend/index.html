@@ -4,18 +4,12 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- ROBOTO — font chữ chính. `display=swap`: chữ hiện ngay bằng font hệ thống
-         rồi đổi khi tải xong, không để trang trắng chờ font. Máy offline thì
-         <link> hỏng im lặng và bộ font dự phòng trong index.css nhận việc. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Phông chữ (Manrope + JetBrains Mono) NHÚNG SẴN trong bản build — xem
+         src/assets/fonts/fonts.css. Không tải từ Google Fonts: bản ứng dụng phải chạy
+         được trên máy không có mạng. -->
     <meta
       name="description"
-      content="Tiền kiểm hồ sơ đăng ký hợp đồng cung ứng lao động theo pháp luật Việt Nam."
+      content="Trích xuất thông tin từ hồ sơ và kiểm tra theo bộ quy định do người dùng cung cấp."
     />
     <!-- Đặt class 'dark' + ngôn ngữ TRƯỚC khi React dựng cây: tránh nháy nền trắng
          khi người dùng đang ở chế độ tối (lần vẽ đầu tiên đã đúng màu). -->
@@ -23,12 +17,18 @@
       (function () {
         try {
           var s = localStorage.getItem("datn6:theme");
-          var dark = s === "dark" || (!s && matchMedia("(prefers-color-scheme: dark)").matches);
-          if (dark) document.documentElement.classList.add("dark");
+          // Chưa chọn lần nào -> TỐI (khớp src/theme.ts).
+          var dark = s !== "light";
+          document.documentElement.classList.toggle("dark", dark);
           document.documentElement.style.colorScheme = dark ? "dark" : "light";
+          // Nền đúng màu ngay lần vẽ đầu (trước khi CSS nạp xong) — không nháy trắng.
+          document.documentElement.style.backgroundColor = dark ? "#08111f" : "#eef2f8";
           if (localStorage.getItem("datn6:lang") === "en") document.documentElement.lang = "en";
+          document.documentElement.dataset.sidebar =
+            localStorage.getItem("datn6:sidebar") === "collapsed" ? "collapsed" : "pinned";
         } catch (e) {
-          /* localStorage bị chặn -> dùng mặc định sáng + tiếng Việt */
+          /* localStorage bị chặn -> mặc định tối + tiếng Việt */
+          document.documentElement.classList.add("dark");
         }
       })();
     </script>

@@ -13,11 +13,9 @@ import { useT, translate } from "../i18n";
 import { CARD, BTN, BTN_PRIMARY, FIELD } from "../ui";
 import { notify } from "../notify";
 
-// Bộ trường xếp 3 tầng, thư mục lồng nhau đúng thứ tự chồng tầng:
-// regions/ > regions/countries/ > regions/countries/works/
+// Hai nhóm file quản trị được: bộ trường MẶC ĐỊNH và kho văn bản quy định.
 const GROUP_KEY: Record<string, string> = {
-  regions: "ad.fieldsRegion", countries: "ad.fieldsCountry", works: "ad.fieldsWork",
-  markets: "ad.marketList", rules: "ad.lawDocs",
+  field_sets: "ad.fieldSets", rules: "ad.lawDocs",
 };
 const groupLabel = (g: string) => translate(GROUP_KEY[g] || "") || g;
 
@@ -303,7 +301,7 @@ function MetricsPage() {
                         {s.ts.slice(0, 16).replace("T", " ")}
                       </div>
                       <div className="text-[12px] text-slate-500">
-                        {[s.market_name, s.job_type_name].filter(Boolean).join(" · ") || s.session_id}
+                        {s.field_set_name || s.session_id}
                       </div>
                     </td>
                     {COLS.map(([k, get]) => (
@@ -455,9 +453,10 @@ function CorpusPage() {
 /**
  * TRANG QUẢN TRỊ — đường dẫn riêng /quan-tri, PHẢI có mã quản trị mới vào được.
  *
- * Ba trang con: **Trang chủ quản trị**, **Quản trị hệ thống** (sửa cấu hình mặc định: bộ trường công việc,
- * danh mục thị trường, văn bản luật — sửa luật tự nạp lại ChromaDB) và **Database**
- * (kho quy định đã nạp bao nhiêu đoạn, dữ liệu phiên, cấu hình đang áp dụng).
+ * Các trang con: **Trang chủ quản trị**, **Quản trị hệ thống** (sửa / tạo bộ trường mặc
+ * định và văn bản quy định — sửa văn bản tự nạp lại ChromaDB), **Database** (kho quy định
+ * đã nạp bao nhiêu đoạn, dữ liệu phiên, bộ trường đang có), **Chỉ số kỹ thuật** và
+ * **Kho quy định** (đăng bạ, hiệu lực, hàm băm, phê duyệt).
  */
 export default function Admin() {
   const t = useT();
@@ -478,6 +477,9 @@ export default function Admin() {
   const [rel, setRel] = useState("");
   const [content, setContent] = useState("");
   const [dirty, setDirty] = useState(false);
+  // Ô TẠO FILE MỚI ở trang Quản trị hệ thống.
+  const [newGroup, setNewGroup] = useState<"rules" | "field_sets">("rules");
+  const [newName, setNewName] = useState("");
   const [saving, setSaving] = useState(false);
 
   const [db, setDb] = useState<DbStatus | null>(null);
@@ -520,6 +522,22 @@ export default function Admin() {
       .catch((e) => setError(friendly(e)));
   }
 
+  /** TẠO FILE MỚI: chỉ đặt đường dẫn + nội dung khởi đầu; file thật chỉ được ghi khi
+   *  bấm Lưu (backend kiểm hợp lệ rồi mới ghi, văn bản quy định thì nạp lại kho). */
+  function createNew() {
+    const name = newName.trim().replace(/\.(md|json)$/i, "")
+      .replace(/đ/g, "d").replace(/Đ/g, "D").normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!name) return setError(t("ad.needName"));
+    const r = newGroup === "rules" ? `rules/${name}.md` : `field_sets/${name}.json`;
+    if (files.some((f) => f.rel === r)) return setError(t("ad.nameTaken"));
+    setError("");
+    setRel(r);
+    setContent(newGroup === "rules" ? `# ${newName.trim()}\n\n` : "");
+    setDirty(true);
+    setNewName("");
+  }
+
   async function save() {
     if (rel.endsWith(".json")) {
       try { JSON.parse(content); }
@@ -531,6 +549,8 @@ export default function Admin() {
       const res = await adminWrite(rel, content);
       setDirty(false);
       notify("success", res.note || t("ad.saved"));
+      // File vừa TẠO MỚI phải xuất hiện trong ô chọn.
+      if (!files.some((f) => f.rel === rel)) fetchFiles();
     } catch (e) {
       const m = friendly(e);
       setError(m);
@@ -596,11 +616,11 @@ export default function Admin() {
     <button
       type="button"
       onClick={() => { setAdminToken(""); setToken(""); setAuthed(false); }}
-      className="admin-logout flex w-full cursor-pointer items-center gap-3 rounded-xl border-0 bg-transparent
-                 px-3 py-2.5 text-[14px] font-semibold text-slate-600 transition-colors"
+      title={t("nav.logout")}
+      className="admin-logout nav-link w-full cursor-pointer border border-transparent bg-transparent"
     >
-      <IconLogout className="h-6 w-6 shrink-0" />
-      <span className="truncate">{t("nav.logout")}</span>
+      <IconLogout className="h-[22px] w-[22px] shrink-0" />
+      <span className="nav-text truncate">{t("nav.logout")}</span>
     </button>
   );
 
@@ -722,10 +742,10 @@ export default function Admin() {
                 <b>{t("ad.configsLabel")}</b>{" "}
                 {Object.entries(db.configs.by_group).map(([g, n]) => `${groupLabel(g)}: ${n}`).join(" · ")}
                 <div className="mt-1">
-                  <b>{t("ad.userConfigsLabel")}</b>{" "}
-                  {db.configs.user_configs.length
-                    ? db.configs.user_configs
-                        .map((c) => `${c.display}${c.applied ? " " + t("ad.applying") : ""}`)
+                  <b>{t("ad.fieldSetsLabel")}</b>{" "}
+                  {db.configs.field_sets.length
+                    ? db.configs.field_sets
+                        .map((f) => `${f.display_name}${f.source === "user" ? ` (${t("cf.sourceUser")})` : ""}`)
                         .join(" · ")
                     : t("ad.none")}
                 </div>
@@ -740,6 +760,26 @@ export default function Admin() {
             <h2 className="m-0 text-lg font-bold">{t("ad.sysTitle")}</h2>
             <p className="mt-1 mb-0 text-sm text-slate-500">{t("ad.sysDescShort")}</p>
 
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <select
+                value={newGroup}
+                onChange={(e) => setNewGroup(e.target.value as "rules" | "field_sets")}
+                className={FIELD + " w-auto"}
+              >
+                <option value="rules">{groupLabel("rules")}</option>
+                <option value="field_sets">{groupLabel("field_sets")}</option>
+              </select>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder={newGroup === "rules" ? t("ad.newRulePh") : t("ad.newFieldSetPh")}
+                className={FIELD + " max-w-xs flex-1"}
+              />
+              <button className={BTN} onClick={createNew} disabled={!newName.trim()}>
+                {t("ad.createFile")}
+              </button>
+            </div>
+
             <div className="mt-3">
               <select
                 value={rel}
@@ -747,6 +787,9 @@ export default function Admin() {
                 className={FIELD + " max-w-2xl " + (rel === "" ? "italic text-slate-500" : "")}
               >
                 <option value="" className="italic text-slate-500">{t("ad.pickToEdit")}</option>
+                {rel && !files.some((f) => f.rel === rel) ? (
+                  <option value={rel} className="not-italic text-slate-800">{rel} ({t("ad.newFile")})</option>
+                ) : null}
                 {groups.map((g) => (
                   <optgroup key={g} label={groupLabel(g)}>
                     {files.filter((f) => f.group === g).map((f) => (
@@ -762,11 +805,11 @@ export default function Admin() {
             <div className={CARD}>
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <span className="text-sm font-semibold text-slate-700">
-                  {files.find((f) => f.rel === rel)?.display || rel}
+                  {files.find((f) => f.rel === rel)?.display || `${rel} (${t("ad.newFile")})`}
                 </span>
                 <span className="flex items-center gap-2">
                   {dirty ? <span className="text-xs text-amber-600">{t("cf.unsaved")}</span> : null}
-                  <button className={BTN} onClick={() => load(rel)}>{t("common.reload")}</button>
+                  <button className={BTN} onClick={() => load(rel)} disabled={!files.some((f) => f.rel === rel)}>{t("common.reload")}</button>
                   <button className={BTN_PRIMARY} onClick={save} disabled={saving || !dirty}>
                     {saving
                       ? t("common.saving")

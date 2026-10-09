@@ -1,14 +1,13 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { CheckResult, DocResult, ValidateResponse } from "../types";
 import { exportPdfUrl, getSessionReport } from "../api/client";
 import { AppShell, Spinner } from "../components/Layout";
-import { DossierPanel, FlagList } from "../components/DossierPanel";
+import { FlagList } from "../components/FlagList";
 import { setLastCheckPath } from "../session";
-import { CARD, BTN, BTN_PRIMARY, badgeCls, fmtCostValue, fmtFieldValue, jobTypeText } from "../ui";
+import { CARD, BTN, BTN_PRIMARY, badgeCls, fmtFieldValue } from "../ui";
 import { IconWarning, IconBlock, IconDownload, IconChevronUp, IconChevronDown } from "../components/Icons";
-import { useT, translate, useCatLabel } from "../i18n";
-import { zipCosts } from "../costPairs";
+import { useT, translate } from "../i18n";
 
 const TH =
   "border-b border-slate-200 bg-slate-50 px-3 py-2.5 text-left text-[13px] font-semibold text-slate-700";
@@ -22,11 +21,9 @@ function verdictLabel(v: string): string {
 }
 
 function Badge({ v, big }: { v: string; big?: boolean }) {
-  // TRƯỜNG KHAI BÁO không có kết luận để hiện. Pháp luật không đặt ngưỡng cho chúng,
-  // nên "Đã khai báo" chỉ nhắc lại điều mà chính cột giá trị đã nói — một cột đầy
-  // badge trung tính làm loãng đúng những dòng CẦN đọc (Cần bổ sung / Không hợp lệ).
-  // Chúng nằm ở khối thông tin hồ sơ (chỉ nhãn + giá trị); nếu một cấu hình thị
-  // trường nào đó còn xếp trường khai báo vào nhóm kiểm tra thì ô kết quả để trống.
+  // TRƯỜNG KHAI BÁO không có kết luận để hiện: không có ngưỡng nào để đối chiếu, nên
+  // "Đã khai báo" chỉ nhắc lại điều mà chính cột giá trị đã nói. Chúng nằm ở khối thông
+  // tin hồ sơ (chỉ nhãn + giá trị).
   if (v === "DECLARATION" && !big) return null;
   // `big`: KẾT LUẬN CHUNG ở đầu trang — câu trả lời chính của cả trang nên to, đậm,
   // đọc được từ xa; badge trong bảng/danh sách vẫn cỡ thường.
@@ -64,24 +61,19 @@ function Axis({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Gộp các check của MỌI tài liệu thành 1 danh sách theo TÊN TRƯỜNG.
-// Khóa gộp là `title` (không phải check_id): nhiều check tổng hợp cùng tên nhưng khác
-// hậu tố id sẽ hiện lặp lại y hệt nhau trong bảng kết luận. Khi 1 trường có kết quả ở
-// nhiều tài liệu -> giữ kết quả ƯU TIÊN theo mức nghiêm trọng (FAIL > … > NOT_APPLICABLE)
-// để không che giấu vi phạm.
+// Gộp các check của MỌI tài liệu thành 1 danh sách theo TRƯỜNG (`check_id`). Khi 1
+// trường có kết quả ở nhiều tài liệu -> giữ kết quả ƯU TIÊN theo mức nghiêm trọng
+// (FAIL > NEEDS_SUPPLEMENT > PASS > DECLARATION) để không che giấu vi phạm.
 function mergeChecks(documents: DocResult[]): CheckResult[] {
   const rank: Record<string, number> = {
-    FAIL: 0, NEEDS_SUPPLEMENT: 1, PASS: 2, DECLARATION: 3, DEFERRED_FOREIGN: 4, NOT_APPLICABLE: 5,
+    FAIL: 0, NEEDS_SUPPLEMENT: 1, PASS: 2, DECLARATION: 3,
   };
   const by = new Map<string, CheckResult>();
   const seq: string[] = [];
   for (const d of documents) {
     for (const c of d.checks || []) {
-      // Gộp theo `check_id` (khóa trường), KHÔNG theo `title`. Từ khi nhãn khoản chi
-      // phí bỏ hậu tố bên chi trả, hai cột có nhãn GIỐNG HỆT nhau ("Tiền dịch vụ",
-      // "Chi phí đi lại", "Đóng góp Quỹ HTVLNN", "Chi phí khám sức khỏe", "Diễn giải
-      // chi phí") — gộp theo nhãn thì khoản của bên tới sau bị nuốt, bảng chi phí
-      // trang 3 mất đúng 5 dòng mà không có lỗi nào được ghi ra.
+      // Gộp theo `check_id` (khóa trường), KHÔNG theo `title`: hai trường có thể
+      // trùng nhãn, gộp theo nhãn thì trường tới sau bị nuốt mà không ai hay.
       const id = c.check_id || c.title;
       const prev = by.get(id);
       if (!prev) { by.set(id, c); seq.push(id); continue; }
@@ -124,12 +116,8 @@ function splitReason(reason: string): string[] {
     .filter(Boolean);
 }
 
-/** THẺ CHI TIẾT ĐỐI CHIẾU QUY ĐỊNH — 1 trường / 1 thẻ.
- *  Bố cục: tên trường (trái) ↔ kết quả đánh giá (phải, căn thẳng hàng); bên dưới là
- *  bảng tô màu theo hợp lệ (xanh) / không hợp lệ (đỏ) với các mục đánh số:
- *    1. Giải thích kết quả — 2. Căn cứ — (chỉ khi không hợp lệ) 3. Rủi ro.
- *  Cảnh báo khoản thu lạ nằm ngay dưới phần Căn cứ. Không có "cách sửa", không có
- *  "trạng thái xử lý" (bỏ theo yêu cầu nghiệp vụ: thẻ chỉ trình bày kết luận + căn cứ).
+/** THẺ CHI TIẾT ĐỐI CHIẾU QUY ĐỊNH — 1 trường / 1 thẻ: Giải thích kết quả · Căn cứ.
+ *  Tô màu theo hợp lệ (xanh) / không hợp lệ (đỏ).
  *
  *  Bảng màu: nền dùng SẮC ĐỘ ĐẬM, RÕ (không phải sắc nhạt gần với nền trang) và chữ
  *  luôn là tông đối lập trên chính nền đó — đọc được ở cả 2 chế độ sáng/tối. */
@@ -137,17 +125,17 @@ const DETAIL_TONE = {
   bad: {
     box: "border-red-400 bg-red-100",
     ink: "text-red-900 dark-ink-bad",
-    quote: "border-red-300 bg-white",
+    quote: "border-red-300 bg-surface",
   },
   good: {
     box: "border-green-400 bg-green-100",
     ink: "text-green-900 dark-ink-good",
-    quote: "border-green-300 bg-white",
+    quote: "border-green-300 bg-surface",
   },
   neutral: {
     box: "border-slate-300 bg-slate-100",
     ink: "text-slate-800",
-    quote: "border-slate-300 bg-white",
+    quote: "border-slate-300 bg-surface",
   },
 } as const;
 
@@ -178,7 +166,6 @@ function DetailPanel({ c }: { c: CheckResult }) {
           </DetailItem>
 
           <DetailItem label={translate("rs.d2")} ink={tone.ink}>
-            {c.playbook?.law ? <div className="mt-0.5">{c.playbook.law}</div> : null}
             {cites.length ? (
               <div className="mt-1 grid gap-1.5">
                 {cites.map((ct, j) => (
@@ -210,23 +197,10 @@ function DetailPanel({ c }: { c: CheckResult }) {
                   </div>
                 ))}
               </div>
-            ) : c.playbook?.law ? null : (
+            ) : (
               <span>{translate("rs.noCitation")}</span>
             )}
-            {/* CẢNH BÁO KHOẢN THU LẠ — ngay dưới phần Căn cứ, chỉ khi không hợp lệ */}
-            {bad && c.fee_warnings?.length ? (
-              <div className="mt-1.5 rounded border-2 border-orange-400 bg-orange-100 px-2 py-1.5 text-[13px] text-orange-900">
-                <div className="flex items-center gap-1.5 font-bold"><IconWarning className="h-4.5 w-4.5 shrink-0" />{translate("rs.feeWarn")}</div>
-                <ul className="my-0.5 list-disc pl-4">
-                  {c.fee_warnings.map((s, j) => <li key={j}>“{s}”</li>)}
-                </ul>
-              </div>
-            ) : null}
           </DetailItem>
-
-          {bad && c.playbook?.risk ? (
-            <DetailItem label={translate("rs.d3")} ink={tone.ink}>{c.playbook.risk}</DetailItem>
-          ) : null}
         </ol>
       </div>
     </div>
@@ -236,15 +210,14 @@ function DetailPanel({ c }: { c: CheckResult }) {
 /** Một trường có gì để bung ra không? Trường KHAI BÁO chỉ có giá trị, không có lý do
  *  hay căn cứ — cho bung ra một ô rỗng còn khó chịu hơn là không cho bấm. */
 function hasDetail(c: CheckResult): boolean {
-  return !!(c.reason || c.citations?.length || c.playbook?.law || c.playbook?.risk);
+  return !!(c.reason || c.citations?.length);
 }
 
 /** MỘT DÒNG trong bảng kết luận, bấm vào thì bung phần chi tiết ngay bên dưới. */
-function ResultRow({ c, money, idx }: { c: CheckResult; money?: boolean; idx: number }) {
+function ResultRow({ c, idx }: { c: CheckResult; idx: number }) {
   const [open, setOpen] = useState(false);
   const can = hasDetail(c);
-  const fmt = money ? fmtCostValue : fmtFieldValue;
-  const val = fmt(c.field_value);
+  const val = fmtFieldValue(c.field_value);
   return (
     <>
       <tr
@@ -273,84 +246,11 @@ function ResultRow({ c, money, idx }: { c: CheckResult; money?: boolean; idx: nu
   );
 }
 
-/** BA Ô của một khoản chi phí (tên · số tiền · kết luận). Trả về fragment, không bọc
- *  `<tr>`: hai bên chi trả nằm trong CÙNG một hàng nên trình duyệt tự cho chúng cùng
- *  chiều cao — hai bảng rời thì hàng thứ i của hai bên cao thấp khác nhau. */
-function CostCells({ c, divider, open, onToggle }: {
-  c?: CheckResult; divider?: boolean; open: boolean; onToggle: () => void;
-}) {
-  if (!c) {
-    return (
-      <>
-        <td className={TD + (divider ? " border-l border-slate-200" : "")} />
-        <td className={TD} /><td className={TD} />
-      </>
-    );
-  }
-  const can = hasDetail(c);
-  const val = fmtCostValue(c.field_value);
-  const click = can ? onToggle : undefined;
-  const base = TD + (can ? " cursor-pointer" : "") + (open ? " bg-blue-50/60" : "");
-  return (
-    <>
-      <td onClick={click} className={base + " font-medium text-slate-800"
-        + (divider ? " border-l border-slate-200" : "")}>{c.title}</td>
-      <td onClick={click} className={base + (val === "—" ? " italic text-slate-400" : "")}>{val}</td>
-      <td onClick={click} className={base + " text-right"}><Badge v={c.verdict} /></td>
-    </>
-  );
-}
-
-/** BẢNG SO CHI PHÍ của trang kết quả — khoản CÙNG TÊN của hai bên nằm ngang nhau.
- *  Bấm một bên thì phần chi tiết của ĐÚNG bên đó bung ra bên dưới, trải hết bề ngang
- *  (chi tiết là một khối văn bản dài, nhét vào nửa bảng thì không đọc được). */
-function PairedCostTable({ pairs }: { pairs: [CheckResult | undefined, CheckResult | undefined][] }) {
-  const [open, setOpen] = useState<string | null>(null);
-  const toggle = (id: string) => setOpen((o) => (o === id ? null : id));
-  return (
-    <table className="w-full table-fixed border-collapse">
-      <thead>
-        <tr>
-          <th className={TH + " w-[22%]"}>{translate("rs.colField")}</th>
-          <th className={TH + " w-[17%]"}>{translate("rs.colValue")}</th>
-          <th className={TH + " w-[11%] text-right"}>{translate("rs.colVerdict")}</th>
-          <th className={TH + " w-[22%] border-l border-slate-200"}>{translate("rs.colField")}</th>
-          <th className={TH + " w-[17%]"}>{translate("rs.colValue")}</th>
-          <th className={TH + " w-[11%] text-right"}>{translate("rs.colVerdict")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {pairs.length === 0 ? (
-          <tr><td colSpan={6} className={TD + " text-slate-500"}>{translate("rs.noRows")}</td></tr>
-        ) : pairs.map(([a, b], i) => {
-          const idA = `${i}:0`, idB = `${i}:1`;
-          const shown = open === idA ? a : open === idB ? b : undefined;
-          return (
-            <Fragment key={(a?.check_id || "") + "|" + (b?.check_id || "") + i}>
-              <tr className={i % 2 ? "bg-slate-50/40" : ""}>
-                <CostCells c={a} open={open === idA} onToggle={() => toggle(idA)} />
-                <CostCells c={b} divider open={open === idB} onToggle={() => toggle(idB)} />
-              </tr>
-              {shown ? (
-                <tr>
-                  <td colSpan={6} className="border-b border-slate-200 bg-blue-50/40 px-6 py-3">
-                    <DetailPanel c={shown} />
-                  </td>
-                </tr>
-              ) : null}
-            </Fragment>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
 /** CÁC KẾT LUẬN HIỆN TRÊN BẢNG KIỂM TRA — dùng chung cho ô đếm đầu tab và chú giải,
  *  hai chỗ này phải nói CÙNG một bộ nhãn, nếu lệch thì chú giải giải thích một màu
  *  không có trong bảng (hoặc ngược lại). "Đã khai báo" KHÔNG có ở đây: trường khai
  *  báo nằm ở khối thông tin hồ sơ, không đi qua bảng kiểm tra. */
-const VERDICTS_SHOWN = ["FAIL", "NEEDS_SUPPLEMENT", "PASS", "DEFERRED_FOREIGN"];
+const VERDICTS_SHOWN = ["FAIL", "NEEDS_SUPPLEMENT", "PASS"];
 
 /** Số trường theo từng kết luận — hiện ngay trên đầu nhóm để biết nhóm nào cần mở
  *  mà không phải mở từng nhóm ra đếm. */
@@ -367,82 +267,34 @@ function CountChips({ items }: { items: CheckResult[] }) {
   );
 }
 
-/** MỘT NHÓM TRƯỜNG — dải màu + đếm trạng thái + gập được. Ba nhóm dùng ba màu cố
- *  định GIỐNG trang 2, để cùng một nhóm không đổi màu giữa hai bước. */
-function SectionBlock({
-  tone, title, items, money, subs,
-}: {
-  tone: Tone; title: string; items: CheckResult[];
-  money?: boolean;
-  /** Chia tiểu mục bên trong (nhóm chi phí: NLĐ trả / bên tiếp nhận trả). */
-  subs?: { title: string; items: CheckResult[] }[];
-}) {
-  const table = (rows: CheckResult[]) => (
-    <table className="w-full border-collapse">
-      <thead>
-        <tr>
-          <th className={TH + " w-1/3"}>{translate("rs.colField")}</th>
-          <th className={TH}>{translate(money ? "rs.colValue" : "rs.colContent")}</th>
-          {/* `w-px whitespace-nowrap`: cột co vừa đúng badge rộng nhất rồi thôi.
-              Bề rộng cố định thì hẹp hơn nhãn "Theo luật nước tiếp nhận" và badge bị
-              bẻ hai dòng. */}
-          <th className={TH + " w-px whitespace-nowrap text-right"}>{translate("rs.colVerdict")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.length === 0 ? (
-          <tr><td colSpan={3} className={TD + " text-slate-500"}>{translate("rs.noRows")}</td></tr>
-        ) : rows.map((c, i) => <ResultRow key={c.check_id || c.title || i} c={c} money={money} idx={i} />)}
-      </tbody>
-    </table>
-  );
+/** MỘT NHÓM TRƯỜNG — dải màu (chung màu `--c-group-bar` với trang 2) + bảng kết luận. */
+function SectionBlock({ title, items }: { title: string; items: CheckResult[] }) {
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200">
-      <div className={`${TONE_BG[tone]} px-3 py-2 text-[13px] font-semibold text-white`}>{title}</div>
-      {subs ? (
-        // HAI BÊN CHI TRẢ đặt cạnh nhau: cả bảng sinh ra chỉ để trả lời một câu —
-        // bên nào trả khoản nào. Hai bảng rời, mỗi bảng xếp theo thứ tự của chính nó
-        // thì "Tiền dịch vụ" của hai bên có khi cách nhau bốn dòng.
-        //
-        // `zipCosts` (đặc theo chỉ số) chứ KHÔNG phải `pairCosts` (ghép theo khái
-        // niệm): khoản chỉ có ở một bên khiến pairCosts chèn một ô rỗng, và với bộ
-        // trường thật thì bảng thủng 4 ô trắng giữa thân — mắt đọc dừng ở mỗi lỗ
-        // hổng để kiểm xem có phải mình bỏ sót gì không, trong khi ô trống đó không
-        // mang tin gì cả. Mỗi ô đã in TÊN KHOẢN của chính nó nên hai cột vẫn đọc
-        // được độc lập; đổi lại các hàng sau chỗ lệch không còn là một phép so từng
-        // cặp. Cùng lối đã dùng ở bảng chi phí trang 2.
-        <>
-          <div className="grid grid-cols-2 items-stretch">
-            {subs.map((s, i) => (
-              <div key={s.title}
-                className={"px-3 py-1.5 text-[13px] font-semibold text-slate-600"
-                  + (i ? " border-l border-slate-200" : "")}>
-                {s.title} ({s.items.length})
-              </div>
-            ))}
-          </div>
-          <PairedCostTable
-            pairs={zipCosts(subs[0].items, subs[1].items, (c) => c.check_id || c.title || "")} />
-        </>
-      ) : table(items)}
+      <div className="bg-[var(--c-group-bar)] px-3 py-2 text-[13px] font-semibold text-white">{title}</div>
+      <table className="w-full border-collapse">
+        <thead>
+          <tr>
+            <th className={TH + " w-1/3"}>{translate("rs.colField")}</th>
+            <th className={TH}>{translate("rs.colContent")}</th>
+            {/* `w-px whitespace-nowrap`: cột co vừa đúng badge rộng nhất rồi thôi. */}
+            <th className={TH + " w-px whitespace-nowrap text-right"}>{translate("rs.colVerdict")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr><td colSpan={3} className={TD + " text-slate-500"}>{translate("rs.noRows")}</td></tr>
+          ) : items.map((c, i) => <ResultRow key={c.check_id || c.title || i} c={c} idx={i} />)}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-// Cả ba nhóm dùng CHUNG một màu xanh (`--c-group-bar` trong index.css) — khớp trang
-// 2. Tên nhóm đã đủ định danh; ba màu bão hòa cạnh nhau chỉ tranh nhau sự chú ý.
-const GROUP_BAR = "bg-[var(--c-group-bar)]";
-const TONE_BG = { blue: GROUP_BAR, green: GROUP_BAR, amber: GROUP_BAR } as const;
-type Tone = keyof typeof TONE_BG;
-
 /**
- * HÀNG 3 THẺ NHÓM — bố cục dạng CỘT, lấy từ mẫu `DesignInterface`.
- *
- * Ba nhóm nằm CẠNH NHAU trên một hàng, không phải ba dải ngang xếp chồng gập/mở
- * độc lập: mở cả ba dải thì trang dài hàng nghìn pixel và tiêu đề nhóm trôi khỏi
- * tầm mắt, gập hết thì phải nhớ nhóm nào có gì. Xếp cạnh nhau thì đọc
- * một lượt là thấy toàn cảnh (số trường, số cần bổ sung, số không hợp lệ của cả ba)
- * — và CHỈ nhóm đang chọn mới trải bảng ra bên dưới, trọn bề ngang.
+ * HÀNG THẺ NHÓM — mỗi MỤC của bộ trường một thẻ, cạnh nhau trên một hàng: đọc một
+ * lượt thấy toàn cảnh (số trường, số cần bổ sung, số không hợp lệ của từng mục) — và
+ * CHỈ nhóm đang chọn mới trải bảng ra bên dưới, trọn bề ngang.
  */
 function GroupTabs({ tabs, active, onPick }: {
   tabs: { id: string; title: string; items: CheckResult[] }[];
@@ -451,12 +303,12 @@ function GroupTabs({ tabs, active, onPick }: {
   return (
     // Số cột = SỐ TAB đang có -> hàng tab trải kín bề ngang thẻ, khớp trang 2.
     <div className={"grid items-stretch gap-2 "
-      + (tabs.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+      + (tabs.length > 3 ? "sm:grid-cols-4" : tabs.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
       {tabs.map((tb) => {
         const on = tb.id === active;
         return (
           <button key={tb.id} type="button" onClick={() => onPick(tb.id)}
-            className={"flex h-full flex-col overflow-hidden rounded-lg border bg-white text-left transition-colors " +
+            className={"flex h-full flex-col overflow-hidden rounded-lg border bg-surface text-left transition-colors " +
               (on ? "border-blue-600" : "border-slate-200 hover:border-blue-400")}>
             {/* Xám khi chưa chọn, xanh khi đang chọn — giống hệt trang 2. Màu của tab
                 chỉ nói MỘT điều: tab nào đang mở. Màu nhận dạng nhóm vẫn ở dải tiêu
@@ -466,7 +318,7 @@ function GroupTabs({ tabs, active, onPick }: {
               <div className="flex items-center gap-2">
                 <span className="min-w-0 truncate">{tb.title}</span>
                 <span className={"ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs " +
-                  (on ? "bg-white/25" : "bg-white text-slate-500")}>
+                  (on ? "bg-white/25" : "bg-surface text-slate-500")}>
                   {tb.items.length}
                 </span>
               </div>
@@ -496,18 +348,14 @@ export default function Result() {
   const { sessionId } = useParams();
   const nav = useNavigate();
   const t = useT();
-  // Danh mục "English (Tiếng Việt)" -> hiện đúng bản của ngôn ngữ đang chọn, khớp với
-  // những gì người dùng đã chọn ở trang 1.
-  const cat = useCatLabel();
   const stateData = (useLocation().state as ValidateResponse | undefined) ?? undefined;
 
   const [data, setData] = useState<ValidateResponse | undefined>(stateData);
   const [loading, setLoading] = useState(!stateData);
   const [warnOpen, setWarnOpen] = useState(false);
   const [violOpen, setViolOpen] = useState(false);
-  // Nhóm đang xem (bố cục 3 thẻ dạng cột). Mặc định "Chi tiết công việc" — nhóm có
-  // nhiều kết luận cần xử lý nhất; khai báo và chi phí phần lớn chỉ để tra cứu.
-  const [tab, setTab] = useState("check");
+  // Nhóm đang xem ("" = nhóm đầu tiên).
+  const [tab, setTab] = useState("");
 
   // Ghi nhớ bước KẾT QUẢ -> "Kiểm tra" trên nav quay lại đúng phiên này.
   useEffect(() => { if (sessionId) setLastCheckPath(`/result/${sessionId}`); }, [sessionId]);
@@ -524,7 +372,7 @@ export default function Result() {
     return (
       <AppShell step={3}>
         <div className="grid place-items-center gap-2.5 p-10 text-sm text-slate-500">
-          <Spinner dark /> Đang tải kết quả...
+          <Spinner dark /> {t("common.loading")}
         </div>
       </AppShell>
     );
@@ -551,23 +399,16 @@ export default function Result() {
   const merged = mergeChecks(documents);
   const gDecl = merged.filter((c) => c.group === "declaration");
   const gCheck = merged.filter((c) => (c.group || "check") === "check");
-  const gPayer = merged.filter((c) => c.group === "payer");
-  const gPayerRecv = gPayer.filter((c) => (c.check_id || "").includes("doi_tac"));
-  const gPayerWorker = gPayer.filter((c) => !(c.check_id || "").includes("doi_tac"));
-  // KHOẢN LẠ do backend tổng hợp; dự phòng dựng lại từ chính các check chi phí FAIL
-  // (báo cáo cũ lưu trước khi có `fee_anomalies` vẫn hiện đúng).
-  const feeAnomalies = data.fee_anomalies?.length
-    ? data.fee_anomalies
-    : gPayer.filter((c) => c.verdict === "FAIL")
-        .flatMap((c) => [`${c.title}: ${fmtCostValue(c.field_value)} — ngoài danh mục khoản được phép thu.`,
-                         ...(c.fee_warnings || []).map((s) => `Trích đoạn nghi vấn trong hồ sơ: “${s}”`)]);
+  // MỖI MỤC (`section`) của bộ trường một tab — khớp trang 2.
+  const tabs = Array.from(new Set(gCheck.map((c) => c.section || ""))).map((sec) => ({
+    id: `s:${sec}`, title: sec || t("rs.secTerms"),
+    items: gCheck.filter((c) => (c.section || "") === sec),
+  }));
+  const activeTab = tabs.find((tb) => tb.id === tab) ?? tabs[0];
 
-  // Cảnh báo THIẾU HỒ SƠ / THIẾU FILE — gộp cờ bộ hồ sơ với cờ chất lượng đầu vào
-  // của mọi tài liệu, khử trùng lặp theo nội dung.
-  const dossierFlags = data.dossier?.flags || [];
-  const inputFlags = documents.flatMap((d) => d.input_flags || []);
+  // Cảnh báo chất lượng đầu vào của mọi tài liệu, khử trùng lặp theo nội dung.
   const seenFlag = new Set<string>();
-  const warnFlags = [...dossierFlags, ...inputFlags].filter((f) => {
+  const warnFlags = documents.flatMap((d) => d.input_flags || []).filter((f) => {
     const k = (f.code || "") + "|" + f.message;
     if (seenFlag.has(k)) return false;
     seenFlag.add(k);
@@ -605,26 +446,14 @@ export default function Result() {
             {t("rs.metaTitle")}
           </div>
           <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
-            {/* Ô đầu là KHU VỰC (tầng cha). Thị trường một nước (Nhật Bản) làm ô
-                "Thị trường" trùng luôn ô Quốc gia — không nói thêm được gì. */}
-            <Axis label={t("rs.axisRegion")} value={cat(data.region_name || data.market_name || "") || "—"} />
-            <Axis label={t("rs.axisCountry")} value={cat(data.country_name || "") || "—"} />
-            <Axis label={t("rs.axisJobType")} value={jobTypeText(cat(data.job_type_name || ""), data.job_title)} />
-            {/* Đã BỎ hai mục: "Thời hạn hợp đồng" (giá trị gần như luôn "—" vì OCR
-                chưa đọc được, trường này còn ở bảng khai báo trang 2 nơi sửa tay
-                được) và "Loại hợp đồng" (hằng số "Hợp đồng cung ứng lao động" — cả
-                hệ thống chỉ kiểm một loại hợp đồng, ô này không phân biệt được hồ sơ
-                nào với hồ sơ nào). */}
-            <Axis label={t("rs.axisDocs")} value={String(data.dossier?.roles?.length || documents.length)} />
+            <Axis label={t("rs.axisFieldSet")} value={data.field_set_name || data.field_set_id || "—"} />
+            <Axis label={t("rs.axisDocKind")} value={data.document_kind || "—"} />
+            <Axis label={t("rs.axisSignedDate")} value={data.signed_date || "—"} />
+            <Axis label={t("rs.axisDocs")} value={String(data.source_files?.length || documents.length)} />
           </div>
-          {/* TRƯỜNG KHAI BÁO nằm NGAY TRONG thẻ này, không còn là một tab riêng:
-              chúng là thông tin ĐỊNH DANH của bộ hồ sơ (doanh nghiệp dịch vụ, bên
-              tiếp nhận, số công văn, quy mô lao động), pháp luật không đặt ngưỡng
-              nào để đối chiếu — đặt cạnh hai tab có kết luận chỉ khiến người duyệt
-              đi tìm kết luận ở nơi không bao giờ có. */}
-          {/* HAI CỘT, chia theo thứ tự (nửa đầu trái, nửa sau phải) — cùng khuôn với
-              bảng khai báo trang 2. Khối này nay 13 mục; một cột thì nó đẩy phần có
-              kết luận xuống dưới màn hình, mà đây là khối chỉ để ĐỌC. */}
+          {/* TRƯỜNG KHAI BÁO nằm NGAY TRONG thẻ này: thông tin ĐỊNH DANH của bộ hồ sơ,
+              không có ngưỡng để đối chiếu. HAI CỘT, chia theo thứ tự — cùng khuôn với
+              bảng khai báo trang 2. */}
           {gDecl.length ? (
             <div className="mt-3 grid gap-x-6 border-t border-slate-200 pt-3 sm:grid-cols-2">
               {[gDecl.slice(0, Math.ceil(gDecl.length / 2)),
@@ -650,27 +479,15 @@ export default function Result() {
           ) : null}
         </div>
 
-        {/* VAI TRÒ TỪNG TÀI LIỆU — ngay DƯỚI thông tin hồ sơ. Nó trả lời nốt câu hỏi
-            "hồ sơ này gồm những gì": phần trên nói lượt kiểm tra thuộc thị trường
-            nào, phần này nói file nào đóng vai trò gì — nên phải đứng cạnh nhau,
-            không bị khối cảnh báo và danh sách vi phạm chen vào giữa. */}
-        <div className="mt-3"><DossierPanel dossier={data.dossier} showFlags={false} flat /></div>
-
-        {/* KHOẢN THU / CHI PHÍ LẠ — dải đỏ, thứ nghiêm trọng nhất nên đứng trước. */}
-        {feeAnomalies.length ? (
-          <div className="mt-3 rounded-lg border-2 border-orange-400 bg-orange-50 px-3 py-2">
-            <div className="flex items-center gap-1.5 text-[13px] font-bold text-orange-900">
-              <IconWarning className="h-4.5 w-4.5 shrink-0" />{t("rs.feeTitle")} ({feeAnomalies.length})
-            </div>
-            <ul className="my-1 list-disc pl-5 text-[13px] text-orange-900">
-              {feeAnomalies.map((s, i) => <li key={i} className="mb-0.5">{s}</li>)}
-            </ul>
+        {/* CÁC FILE CỦA PHIÊN — theo thứ tự tải lên (file đầu là tài liệu chính). */}
+        {data.source_files?.length ? (
+          <div className="mt-3 text-[13px] text-slate-600">
+            <span className="font-semibold">{t("rs.files")}:</span>{" "}
+            {data.source_files.join(" · ")}
           </div>
         ) : null}
 
-        {/* CẢNH BÁO BỘ HỒ SƠ — GẬP LẠI mặc định. Danh sách này thường 6–8 dòng và
-            gần như luôn là cùng một loại ("thiếu thành phần"), mở sẵn thì nó đẩy
-            phần kết luận theo trường xuống dưới màn hình. */}
+        {/* CẢNH BÁO ĐẦU VÀO — GẬP LẠI mặc định để không đẩy phần kết luận xuống. */}
         {warnFlags.length ? (
           <div className="mt-3 overflow-hidden rounded-lg border border-amber-300 bg-amber-50">
             <button type="button" onClick={() => setWarnOpen((v) => !v)}
@@ -686,10 +503,8 @@ export default function Result() {
           <div className="mt-3 text-[13px] font-medium text-green-700">{t("rs.noWarn")}</div>
         )}
 
-        {/* ĐIỀU KHOẢN VI PHẠM — cùng khuôn với khối cảnh báo bên trên: dải bấm được,
-            gập lại mặc định, nền đỏ. Hai khối này cùng vai trò ("danh sách việc phải
-            xử lý") nên phải cùng hình dạng: một khối gập được mà khối kia luôn mở thì
-            danh sách 7 mục đẩy hết phần bảng xuống dưới màn hình. */}
+        {/* NỘI DUNG VI PHẠM — cùng khuôn với khối cảnh báo bên trên: dải bấm được,
+            gập lại mặc định, nền đỏ. */}
         {violated.length ? (
           <div className="mt-3 overflow-hidden rounded-lg border border-red-300 bg-red-50">
             <button type="button" onClick={() => setViolOpen((v) => !v)}
@@ -701,7 +516,7 @@ export default function Result() {
               <ul className="m-0 grid list-none gap-1.5 border-t border-red-300 p-3">
                 {violated.map((c, i) => (
                   <li key={c.check_id || i}
-                    className="rounded-lg border border-red-200 bg-white/60 px-3 py-2 text-[13px]">
+                    className="rounded-lg border border-red-200 bg-surface/60 px-3 py-2 text-[13px]">
                     <span className="flex flex-wrap items-center gap-2">
                       <b className="text-slate-800">{c.title}</b>
                       <Badge v={c.verdict} />
@@ -722,33 +537,17 @@ export default function Result() {
         )}
       </div>
 
-      {/* KẾT LUẬN THEO TRƯỜNG — 3 nhóm, cùng tên và cùng màu với trang 2.
-          Mỗi dòng bấm được để bung GIẢI THÍCH · CĂN CỨ · RỦI RO ngay tại chỗ; nút
-          "Hiện chi tiết đối chiếu" cùng danh sách thẻ ở cuối trang đã bỏ — lý do
-          của một trường chỉ có nghĩa khi đứng cạnh giá trị của chính trường đó. */}
+      {/* KẾT LUẬN THEO TRƯỜNG — mỗi dòng bấm được để bung GIẢI THÍCH · CĂN CỨ ngay tại
+          chỗ: lý do của một trường chỉ có nghĩa khi đứng cạnh giá trị của chính nó. */}
       <div className={CARD}>
-        <GroupTabs
-          active={tab} onPick={setTab}
-          /* HAI tab. "Thông tin chung" đã lên thẻ thông tin hồ sơ; phần còn lại
-             của nó và "Chi tiết hợp đồng" gộp thành ĐIỀU KHOẢN — cả hai vốn là
-             điều khoản của cùng một hợp đồng. */
-          tabs={[
-            { id: "check", title: t("rs.secTerms"), items: gCheck },
-            { id: "payer", title: t("rs.secPayer"), items: gPayer },
-          ]}
-        />
+        {tabs.length > 1 ? (
+          <GroupTabs active={activeTab?.id ?? ""} onPick={setTab} tabs={tabs} />
+        ) : null}
         <Legend />
         <div className="mt-3">
-          {tab === "check" ? <SectionBlock tone="green" title={t("rs.secTerms")} items={gCheck} /> : null}
-          {tab === "payer" ? (
-            <SectionBlock
-              tone="amber" title={t("rs.secPayer")} items={gPayer} money
-              subs={[
-                { title: translate("rv.costWorker"), items: gPayerWorker },
-                { title: translate("rv.costPartner"), items: gPayerRecv },
-              ]}
-            />
-          ) : null}
+          {activeTab ? <SectionBlock title={activeTab.title} items={activeTab.items} /> : (
+            <div className="text-[13px] text-slate-500">{t("rs.noRows")}</div>
+          )}
         </div>
 
         {/* BỘ NÚT ở CUỐI thẻ bảng — cuối việc mới tới lúc quyết định đi đâu. Trở lại
@@ -756,7 +555,14 @@ export default function Result() {
             tiếp nằm ở nơi tay dừng lại. */}
         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-200 pt-3">
           <button className={BTN} onClick={() => nav(`/review/${sessionId}`)}>← {t("rs.backReview")}</button>
-          <a className={BTN + " ml-auto gap-1.5"} href={exportPdfUrl(sessionId || "")} target="_blank" rel="noreferrer">
+          {/* Bản build (ứng dụng): cùng origin -> `download` mở hộp thoại "Lưu" của Windows
+              ngay trong cửa sổ. Bản dev (Vite :5173, API :8000) khác origin nên `download`
+              bị bỏ qua -> mở tab mới để không mất trang kết quả. */}
+          <a
+            className={BTN + " ml-auto gap-1.5"}
+            href={exportPdfUrl(sessionId || "")}
+            {...(import.meta.env.PROD ? { download: "" } : { target: "_blank", rel: "noreferrer" })}
+          >
             <IconDownload className="h-4.5 w-4.5" /> {t("rs.export")}
           </a>
           <button className={BTN_PRIMARY} onClick={() => nav("/kiem-tra")}>{t("rs.again")}</button>

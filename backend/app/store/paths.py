@@ -16,11 +16,9 @@ from typing import Any
 
 APP_DIR = Path(__file__).resolve().parent.parent
 PROMPTS_DIR = APP_DIR / "prompts"
-JOBS_DIR = PROMPTS_DIR / "jobs"
-# Danh mục khu vực/thị trường/quốc gia/loại hình nằm NGAY TRONG `jobs/`: nó là cây
-# lựa chọn của chính 3 tầng bộ trường bên dưới (regions -> countries -> works), để
-# chung một thư mục thì sửa danh mục và sửa bộ trường không còn ở hai nơi khác nhau.
-MARKETS_FILE = JOBS_DIR / "markets.json"
+# BỘ TRƯỜNG mặc định đi kèm hệ thống (mỗi tệp = một loại hồ sơ). Bộ trường do người
+# dùng tạo nằm ở `data/user_config/field_sets/` và không bao giờ ghi đè thư mục này.
+FIELD_SETS_DIR = PROMPTS_DIR / "field_sets"
 SERVICES_DIR = PROMPTS_DIR / "services"
 DATA_DIR = APP_DIR / "data"
 AUDIT_FILE = DATA_DIR / "audit.jsonl"

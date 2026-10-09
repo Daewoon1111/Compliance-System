@@ -93,11 +93,11 @@ def test_recall_at_k_dem_tren_doan_luat_dung():
 
 def test_do_chinh_xac_trich_dan_so_tren_ten_van_ban():
     """So trên TÊN văn bản, không trên mã đoạn: mã đoạn gồm hàm băm nội dung nên đổi
-    mỗi lần seed lại, còn 'Thông tư số 02/2024/TT-BLĐTBXH' thì không."""
-    case = {"citations": {"k1": ["Thông tư số 02/2024/TT-BLĐTBXH"], "k2": ["Luật số 69/2020/QH14"]}}
+    mỗi lần seed lại, còn 'Thông tư mẫu số 05/2024' thì không."""
+    case = {"citations": {"k1": ["Thông tư mẫu số 05/2024"], "k2": ["Quy định mẫu về hợp đồng dịch vụ"]}}
     report = {"documents": [{"checks": [
-        {"check_id": "k1", "citations": [{"source_doc": "Thông tư số 02/2024/TT-BLĐTBXH"}]},
-        {"check_id": "k2", "citations": [{"source_doc": "Nghị định số 112/2021/NĐ-CP"}]},
+        {"check_id": "k1", "citations": [{"source_doc": "Thông tư mẫu số 05/2024"}]},
+        {"check_id": "k2", "citations": [{"source_doc": "Nghị định mẫu số 10/2021"}]},
     ]}]}
     out = ev.citation_accuracy(case, report)
     assert out["total"] == 2 and out["correct"] == 1 and out["accuracy"] == 0.5

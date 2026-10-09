@@ -17,9 +17,10 @@ function read(): Theme {
   try {
     const v = localStorage.getItem(KEY);
     if (v === "light" || v === "dark") return v;
-    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    // Chưa chọn lần nào -> giao diện TỐI (bản thiết kế chính). Nút ở thanh trên đổi được.
+    return "dark";
   } catch {
-    return "light";
+    return "dark";
   }
 }
 
@@ -29,6 +30,8 @@ function paint(t: Theme) {
   const root = document.documentElement;
   root.classList.toggle("dark", t === "dark");
   root.style.colorScheme = t;
+  // index.html đặt sẵn nền theo chế độ lúc mở; đổi chế độ thì xóa để CSS (`--c-bg`) quyết.
+  root.style.backgroundColor = "";
 }
 
 paint(theme);

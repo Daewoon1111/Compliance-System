@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>IERCV — đang khởi động</title>
+<!-- Trang chờ của bản ứng dụng, hiện NGAY khi bấm mở trong lúc nạp thư viện + bật máy chủ.
+
+     · Cửa sổ phần mềm gốc (pywebview): launcher nạp trang này dưới dạng HTML rồi TỰ chuyển
+       sang giao diện thật khi máy chủ trả lời — trang không cần biết địa chỉ.
+     · Đường dự phòng Edge --app: trang mở dạng tệp cục bộ kèm `?target=<địa chỉ>` và tự dò
+       máy chủ. Dò bằng <img> tới favicon chứ không bằng fetch: trang file:// có origin
+       "null", fetch sang máy chủ vướng CORS; tải ảnh thì không.
+
+     Màu khớp nền tối của giao diện (#08111f) để chuyển trang không bị nháy. Không tải font
+     từ mạng: máy dùng USB có thể không có mạng. -->
+<style>
+  :root { color-scheme: dark; --bg: #08111f; --fg: #edf3ff; --muted: #91a2bb;
+          --line: #253650; --primary: #4f8cff; --soft: rgba(79, 140, 255, .14); }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(circle at 12% 8%, rgba(40, 126, 123, .16), transparent 26rem),
+      radial-gradient(circle at 92% 88%, rgba(36, 87, 168, .14), transparent 30rem), var(--bg);
+    color: var(--fg); font: 15px/1.55 "Segoe UI Variable Text", "Segoe UI", Roboto, Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center; -webkit-user-select: none; user-select: none;
+  }
+  main { width: min(460px, 86vw); }
+  .mark { width: 52px; height: 52px; border-radius: 14px; display: grid; place-items: center;
+          background: linear-gradient(145deg, #4f8cff, #315fbd); box-shadow: 0 10px 28px rgba(79, 140, 255, .28);
+          margin-bottom: 22px; }
+  .eyebrow { color: #6b9fff; font-size: 11px; font-weight: 700; letter-spacing: .16em; margin: 0 0 6px; }
+  h1 { font-size: 21px; font-weight: 650; letter-spacing: -.01em; margin: 0 0 6px; }
+  p { color: var(--muted); margin: 0 0 22px; font-size: 14px; }
+  .track { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar { height: 100%; width: 32%; background: var(--primary); border-radius: 2px;
+         box-shadow: 0 0 12px var(--primary); animation: slide 1.4s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
+  @media (prefers-reduced-motion: reduce) { .bar { animation: none; width: 100%; opacity: .5; } }
+  #slow { display: none; margin-top: 20px; padding: 12px 14px; border: 1px solid var(--line);
+          border-radius: 10px; background: var(--soft); color: var(--fg); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="mark" aria-hidden="true">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"
+         stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>
+    </svg>
+  </div>
+  <p class="eyebrow">IERCV</p>
+  <h1>Hệ thống trích xuất kiểm tra thông tin theo quy định</h1>
+  <p id="msg">Đang khởi động — lần đầu trên USB có thể mất 1–2 phút.</p>
+  <div class="track"><div class="bar"></div></div>
+  <p id="slow">Khởi động lâu hơn bình thường. Nếu sau vài phút vẫn chưa vào được, đóng cửa sổ
+    và xem nhật ký trong thư mục <b>data\logs</b> của ứng dụng.</p>
+</main>
+<script>
+  (function () {
+    var start = Date.now();
+    function slow() {
+      if (Date.now() - start > 180000) document.getElementById("slow").style.display = "block";
+    }
+    var target = new URLSearchParams(location.search).get("target");
+    // Không có địa chỉ = cửa sổ phần mềm gốc: launcher tự chuyển trang, ở đây chỉ chờ.
+    if (!target) {
+      setInterval(slow, 5000);
+      return;
+    }
+    if (!/^http:\/\/127\.0\.0\.1:\d+\/$/.test(target)) return;
+    function probe() {
+      var img = new Image();
+      img.onload = function () { location.replace(target); };
+      img.onerror = function () { slow(); setTimeout(probe, 700); };
+      img.src = target + "favicon.svg?t=" + Date.now();
+    }
+    probe();
+  })();
+</script>
+</body>
+</html>

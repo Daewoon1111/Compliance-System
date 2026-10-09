@@ -85,11 +85,11 @@ def build_validation_payload(
             "effective_to": m.get("effective_to"),
         }
 
-    # Cắt mỗi đoạn luật còn `rag_chunk_chars` ký tự: đủ ngữ nghĩa đối chiếu mà giảm
+    # Cắt mỗi đoạn quy định còn `rag_chunk_chars` ký tự: đủ ngữ nghĩa đối chiếu mà giảm
     # mạnh prompt token, và prefill trên CPU là phần tốn nhất của một lượt gọi. Trích
     # dẫn HIỂN THỊ lấy từ `rag_chunks` GỐC ở reconcile nên người dùng không mất gì.
-    # SẮP THEO chunk_id: cùng một thị trường, hai hồ sơ khác nhau vẫn kéo về gần như
-    # cùng bộ đoạn luật nhưng THỨ TỰ theo điểm rerank thì đổi lung tung -> chuỗi token
+    # SẮP THEO chunk_id: cùng một bộ trường, hai hồ sơ khác nhau vẫn kéo về gần như
+    # cùng bộ đoạn quy định nhưng THỨ TỰ theo điểm rerank thì đổi lung tung -> chuỗi token
     # khác nhau ngay từ đoạn đầu -> KV-cache của Ollama không tái dùng được gì.
     _cap = int(getattr(settings, "rag_chunk_chars", 800) or 800)
     regulations_payload = sorted(
@@ -105,8 +105,9 @@ def build_validation_payload(
     fields_catalog_slim = {k: full_slim[k] for k in fields_to_check if k in full_slim}
 
     job_prompt_slim = {
-        "job_id": job_prompt.get("job_id"),
+        "field_set_id": job_prompt.get("id"),
         "display_name": job_prompt.get("display_name"),
+        "document_kind": job_prompt.get("document_kind"),
         "jurisdiction": job_prompt.get("jurisdiction"),
         "fields_catalog": fields_catalog_slim,
     }
@@ -129,8 +130,8 @@ def build_validation_payload(
     # Ollama chỉ tái dùng KV-cache cho phần ĐẦU giống hệt nhau giữa hai lần gọi.
     # Xếp từ BẤT BIẾN NHẤT tới THAY ĐỔI NHIỀU NHẤT:
     #   1) luật chơi (prompt_id/task/schema/post_rules)  — không đổi giữa mọi lần gọi;
-    #   2) đoạn luật của THỊ TRƯỜNG + catalog trường     — không đổi trong một phiên
-    #      duyệt nhiều hồ sơ cùng thị trường;
+    #   2) đoạn quy định + catalog trường của BỘ TRƯỜNG — không đổi trong một phiên
+    #      duyệt nhiều hồ sơ cùng loại;
     #   3) giá trị của HỒ SƠ                             — đổi mỗi lần.
     # Đặt contract_json lên sớm thì hồ sơ nào cũng phải prefill lại TOÀN BỘ payload;
     # trên CPU prefill là phần tốn nhất.
@@ -143,7 +144,7 @@ def build_validation_payload(
         "post_rules": prompt.get("post_rules", []),
         "final_verdict_policy": prompt.get("final_verdict_policy", {}),
         "input_contract_convention": prompt.get("input_contract_convention", {}),
-        # --- (2) THEO THỊ TRƯỜNG / BỘ TRƯỜNG ĐANG KIỂM ---
+        # --- (2) THEO BỘ TRƯỜNG ĐANG KIỂM ---
         "job_prompt": job_prompt_slim,
         "fields_to_check": fields_to_check,
         "regulations": regulations_payload,
@@ -160,11 +161,11 @@ async def run_validation(
     rag_chunks: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """MỘT lần gọi LLM duy nhất cho cả lượt kiểm tra: đối chiếu mọi trường với các
-    đoạn luật đã truy hồi, trả kết luận + trích dẫn theo JSON Schema cố định.
+    đoạn quy định đã truy hồi, trả kết luận + trích dẫn theo JSON Schema cố định.
 
     Gọi một lần cho tất cả các trường (không phải mỗi trường một lần) vì các trường
-    ràng buộc lẫn nhau — lương với thời giờ làm việc, tiền dịch vụ với thời hạn hợp
-    đồng — và vì trên máy local mỗi lần gọi thêm là thêm một lượt sinh chữ trên CPU."""
+    ràng buộc lẫn nhau, và vì trên máy local mỗi lần gọi thêm là thêm một lượt sinh chữ
+    trên CPU."""
     system, user_payload = build_validation_payload(
         job_prompt, contract_json, fields_to_check, rag_chunks,
     )
@@ -180,7 +181,7 @@ async def run_validation(
     # cắt cụt prompt — cả hai đều không báo gì.
     _fit = _cfg if settings.validation_num_ctx else fit_num_ctx(_n, _cfg)
     print(f"[validate] payload ~{_n // 3} token ({_n} ký tự) · {len(fields_to_check)} trường "
-          f"· {len(rag_chunks)} đoạn luật · num_ctx {_fit}/{_cfg}")
+          f"· {len(rag_chunks)} đoạn quy định · num_ctx {_fit}/{_cfg}")
     # GHI LẠI, không chỉ in ra. Dòng log trên trả lời được câu hỏi "lượt này nặng bao
     # nhiêu" nhưng biến mất cùng cửa sổ terminal, nên không trả lời được câu hỏi thật
     # sự cần: hạ `validation_num_ctx` xuống mức nào thì an toàn. Bộ đếm đi vào báo cáo
@@ -195,7 +196,7 @@ async def run_validation(
         system, user_payload,
         models=settings.validation_model or None,
         schema=VALIDATION_SCHEMA,
-        # Bước KIỂM TRA gửi payload dài nhất (đoạn luật + toàn bộ trường) và là bước
+        # Bước KIỂM TRA gửi payload dài nhất (đoạn quy định + toàn bộ trường) và là bước
         # người dùng chờ trực tiếp -> cửa sổ lớn hơn + giữ model trong RAM lâu hơn.
         num_ctx=settings.validation_num_ctx or None,
         keep_alive=settings.validation_keep_alive or None,

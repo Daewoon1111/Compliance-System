@@ -28,10 +28,10 @@ def test_build_messages_joins_system_list():
 
 
 def test_extraction_schema_covers_keys():
-    sch = extraction_schema(["ngay_ky_hop_dong", "ky_quy_vnd"])
+    sch = extraction_schema(["ngay_ky", "gia_tri_hop_dong"])
     fields = sch["properties"]["fields"]["properties"]
-    assert set(fields) == {"ngay_ky_hop_dong", "ky_quy_vnd"}
-    assert "value" in fields["ngay_ky_hop_dong"]["properties"]
+    assert set(fields) == {"ngay_ky", "gia_tri_hop_dong"}
+    assert "value" in fields["ngay_ky"]["properties"]
     assert sch["required"] == ["fields"]
 
 
@@ -77,13 +77,13 @@ def test_json_cut_giua_chung_thi_vot_cac_check_da_tron_ven():
     from app.llm import parse_llm_json
 
     cut = ('{"overall_verdict":"FAIL","checks":['
-           '{"check_id":"tien_luong","verdict":"PASS","reason":"trong mức","citations":[{"chunk_id":"c1"}]},'
-           '{"check_id":"ky_quy_vnd","verdict":"FAIL","reason":"thu ký quỹ"},'
-           '{"check_id":"bao_hiem","verdict":"PASS","reason":"lặp lặp lặp lặp lặp')
+           '{"check_id":"thoi_han","verdict":"PASS","reason":"rõ ràng","citations":[{"chunk_id":"c1"}]},'
+           '{"check_id":"gia_tri_hop_dong","verdict":"FAIL","reason":"thiếu đơn vị tiền"},'
+           '{"check_id":"tranh_chap","verdict":"PASS","reason":"lặp lặp lặp lặp lặp')
     out = parse_llm_json(cut)
-    assert [c["check_id"] for c in out["checks"]] == ["tien_luong", "ky_quy_vnd"]
+    assert [c["check_id"] for c in out["checks"]] == ["thoi_han", "gia_tri_hop_dong"]
     # Trường vớt hụt KHÔNG bị bịa: reconcile_checks sẽ trả 'cần bổ sung' cho chúng.
-    assert all("bao_hiem" != c["check_id"] for c in out["checks"])
+    assert all("tranh_chap" != c["check_id"] for c in out["checks"])
 
 
 def test_chuoi_khong_phai_json_van_nem_loi():

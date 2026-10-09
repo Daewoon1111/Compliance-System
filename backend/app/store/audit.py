@@ -1,60 +1,54 @@
-"""HẠ TẦNG (store.audit) — NHẬT KÝ kiểm tra (data/audit.jsonl) + hậu kiểm.
+"""HẠ TẦNG (store.audit) — NHẬT KÝ kiểm tra (data/audit.jsonl).
 
-Mỗi lần kiểm tra ghi 1 dòng JSON. Từ đó dựng: kho hồ sơ tra cứu (Tầng 3.3), nhắc
-hạn hợp đồng sắp hết hiệu lực, và thống kê PASS/FAIL theo thị trường.
+Mỗi lần kiểm tra ghi 1 dòng JSON. Từ đó dựng: kho hồ sơ tra cứu, thống kê PASS/FAIL
+theo bộ trường (loại hồ sơ) và chỉ số kỹ thuật.
 """
 from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
+from .app_settings import stats_since
 from .paths import AUDIT_FILE, DATA_DIR, VERDICTS, file_lock
 
 
 def record_run(
     session_id: str,
-    market_id: str,
-    market_name: str,
-    job_type_name: str,
+    field_set_id: str,
+    field_set_name: str,
     documents: list[dict[str, Any]],
     signed_date: str = "",
-    duration_months: int | None = None,
-    country_name: str = "",
     metrics: dict[str, Any] | None = None,
     total_bytes: int = 0,
     total_pages: int = 0,
     ocr_seconds: float = 0.0,
     corpus_fingerprint: str = "",
+    source_files: list[str] | None = None,
+    accuracy: dict[str, Any] | None = None,
 ) -> None:
-    """Ghi 1 bản ghi kiểm tra (gồm kết luận từng document). signed_date +
-    duration_months dùng cho NHẮC HẠN hợp đồng (hậu kiểm, Tầng 3.3).
+    """Ghi 1 bản ghi kiểm tra (gồm kết luận từng document).
 
-    `metrics` lưu bản GỌN của số đo lượt này. Chỉ giữ phần dùng để so sánh giữa các
-    lượt (thời gian, phủ truy hồi, độ chính xác trích dẫn, cache, retry) — KHÔNG lưu
-    `retrieval.detail` vì nó phình theo số chunk và làm nhật ký nặng lên nhanh.
+    `metrics` lưu bản GỌN của số đo lượt này (thời gian, phủ truy hồi, độ chính xác
+    trích dẫn, cache, retry) — không lưu `retrieval.detail` vì nó phình theo số đoạn.
 
     `total_bytes` + `total_pages` + `ocr_seconds` thuộc bước ĐỌC HỒ SƠ (chạy ở lượt
-    upload, trước lượt kiểm tra) nên không nằm trong `metrics` của lượt này — phải
-    truyền vào riêng. Thiếu chúng thì trang chỉ số không trả lời được câu hỏi cơ bản
-    nhất: thời gian bỏ ra là cho OCR hay cho đối chiếu, và mỗi trang tốn bao lâu."""
+    tải lên) nên phải truyền vào riêng."""
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         rec = {
             "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
             "session_id": session_id,
-            "market_id": market_id or "",
-            "market_name": market_name or "",
-            "job_type_name": job_type_name or "",
-            "country_name": country_name or "",
+            "field_set_id": field_set_id or "",
+            "field_set_name": field_set_name or "",
             "signed_date": signed_date or "",
-            "duration_months": duration_months,
+            "source_files": list(source_files or []),
             "num_documents": len(documents),
             "total_bytes": int(total_bytes or 0),
             "total_pages": int(total_pages or 0),
             "ocr_seconds": round(float(ocr_seconds or 0.0), 1),
-            # Vân tay kho luật lúc chạy: bản ghi cũ có vân tay khác vân tay hiện tại là
+            # Vân tay kho quy định lúc chạy: bản ghi cũ có vân tay khác vân tay hiện tại là
             # bản ghi phải kiểm lại trước khi đem dùng làm bằng chứng.
             "corpus_fingerprint": corpus_fingerprint or "",
             "documents": [
@@ -69,6 +63,9 @@ def record_run(
         }
         if metrics:
             rec["metrics"] = _slim_metrics(metrics)
+        if accuracy:
+            # CER/WER/độ chính xác trường… của bộ hồ sơ này (xem compliance.accuracy).
+            rec["accuracy"] = accuracy
         # KHÓA quanh phần ghi thêm: hai tiến trình cùng ghi một tệp JSONL không khóa
         # thì hai dòng chèn lẫn vào nhau và mất cả hai bản ghi.
         with file_lock(AUDIT_FILE), open(AUDIT_FILE, "a", encoding="utf-8") as f:
@@ -160,10 +157,10 @@ def read_audit(limit: int = 200) -> list[dict[str, Any]]:
 
 
 def search_audit(
-    q: str = "", market: str = "", verdict: str = "", limit: int = 200,
+    q: str = "", field_set: str = "", verdict: str = "", limit: int = 200,
 ) -> list[dict[str, Any]]:
-    """KHO HỒ SƠ (Tầng 3.3): tìm kiếm toàn văn (bỏ dấu) + lọc theo thị trường/kết quả
-    trên nhật ký kiểm tra. q khớp trên: tên file, thị trường, loại hình, session_id."""
+    """KHO HỒ SƠ: tìm toàn văn (bỏ dấu) + lọc theo bộ trường/kết quả trên nhật ký kiểm
+    tra. q khớp trên: tên file, tên bộ trường, session_id."""
     from app.domain.documents.ocr import (
         fold_diacritics,  # noqa: PLC0415 — tránh vòng import
     )
@@ -172,14 +169,14 @@ def search_audit(
     out: list[dict[str, Any]] = []
     for rec in reversed(_read_all()):
         docs = rec.get("documents", [])
-        if market and market not in (rec.get("market_id"), rec.get("market_name")):
+        if field_set and field_set not in (rec.get("field_set_id"), rec.get("field_set_name")):
             continue
         if verdict and not any(d.get("overall_verdict") == verdict for d in docs):
             continue
         if qf:
             hay = fold_diacritics(" ".join(
-                [rec.get(k, "") for k in
-                 ("session_id", "market_name", "job_type_name", "country_name")]
+                [rec.get(k, "") for k in ("session_id", "field_set_name")]
+                + list(rec.get("source_files") or [])
                 + [d.get("source_file", "") for d in docs]
             )).lower()
             if qf not in hay:
@@ -190,52 +187,41 @@ def search_audit(
     return out
 
 
-def _expiry_date(signed: str, months: int) -> date | None:
-    """signed_date + duration_months. Ngày không tồn tại (31/2...) hay dữ liệu hỏng -> None."""
-    try:
-        d0 = datetime.strptime(signed[:10], "%Y-%m-%d").date()
-        total = d0.month - 1 + int(months)
-        return d0.replace(year=d0.year + total // 12, month=total % 12 + 1)
-    except Exception:  # noqa: BLE001
-        return None
+_ACC_KEYS = ("cer", "wer", "ocr_accuracy", "field_accuracy", "table_accuracy",
+             "number_accuracy", "date_accuracy")
 
 
-def upcoming_expirations(days: int = 90) -> list[dict[str, Any]]:
-    """HẬU KIỂM (Tầng 3.3): hợp đồng sắp HẾT HẠN trong `days` ngày tới, tính từ
-    signed_date + duration_months đã lưu lúc kiểm tra. Thiếu dữ liệu -> bỏ qua."""
-    today = datetime.now().date()
-    horizon = today + timedelta(days=days)
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for rec in reversed(_read_all()):          # mới nhất trước; mỗi session lấy 1 lần
-        sid = rec.get("session_id", "")
-        sd, months = rec.get("signed_date") or "", rec.get("duration_months")
-        if not sid or sid in seen:
-            continue
-        seen.add(sid)
-        expiry = _expiry_date(sd, months) if sd and months else None
-        if expiry is None or not (today <= expiry <= horizon):
-            continue
-        out.append({
-            "session_id": sid, "market_name": rec.get("market_name", ""),
-            "job_type_name": rec.get("job_type_name", ""),
-            "signed_date": sd, "duration_months": months,
-            "expires_on": expiry.isoformat(),
-            "days_left": (expiry - today).days,
-        })
-    out.sort(key=lambda r: r["expires_on"])
+def _mean_accuracy(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Trung bình từng chỉ số trên các bộ hồ sơ CÓ chỉ số đó (`None` bị bỏ qua)."""
+    out: dict[str, Any] = {"runs": len(items)}
+    for k in _ACC_KEYS:
+        vals = [float(a[k]) for a in items if isinstance(a.get(k), (int, float))]
+        out[k] = round(sum(vals) / len(vals), 4) if vals else None
     return out
 
 
-def aggregate_stats() -> dict[str, Any]:
-    """Tổng hợp PASS/FAIL/NEEDS_SUPPLEMENT theo THỊ TRƯỜNG (tính trên từng document)."""
-    by_market: dict[str, dict[str, Any]] = {}
+def aggregate_stats(recent: int = 50) -> dict[str, Any]:
+    """Tổng hợp PASS/FAIL/NEEDS_SUPPLEMENT theo BỘ TRƯỜNG (tính trên từng document),
+    kèm CHỈ SỐ CHẤT LƯỢNG ĐỌC (CER, WER, độ chính xác…) — trung bình theo bộ trường và
+    từng bộ hồ sơ gần nhất (`runs`, mới nhất trước)."""
+    by_field_set: dict[str, dict[str, Any]] = {}
     totals = dict.fromkeys(VERDICTS, 0)
     total_docs = total_runs = 0
+    runs: list[dict[str, Any]] = []
+    acc_by_set: dict[str, list[dict[str, Any]]] = {}
+    since = stats_since()      # "Xóa thống kê" ở trang Cài đặt: chỉ tính lượt SAU mốc này
     for rec in _read_all():
+        if since and str(rec.get("ts", "")) < since:
+            continue
         total_runs += 1
-        mname = rec.get("market_name") or rec.get("market_id") or "(không rõ)"
-        m = by_market.setdefault(mname, dict.fromkeys(VERDICTS, 0) | {"total": 0})
+        name = rec.get("field_set_name") or rec.get("field_set_id") or "(không rõ)"
+        if isinstance(acc := rec.get("accuracy"), dict):
+            acc_by_set.setdefault(name, []).append(acc)
+            runs.append({"ts": rec.get("ts", ""), "session_id": rec.get("session_id", ""),
+                         "field_set_name": name,
+                         "source_files": rec.get("source_files") or [],
+                         "accuracy": acc})
+        m = by_field_set.setdefault(name, dict.fromkeys(VERDICTS, 0) | {"total": 0})
         for d in rec.get("documents", []):
             v = d.get("overall_verdict", "NEEDS_SUPPLEMENT")
             if v not in VERDICTS:
@@ -244,10 +230,15 @@ def aggregate_stats() -> dict[str, Any]:
             m["total"] += 1
             totals[v] += 1
             total_docs += 1
+    for name, m in by_field_set.items():
+        m["accuracy"] = _mean_accuracy(acc_by_set.get(name, []))
+    runs.sort(key=lambda r: str(r["ts"]), reverse=True)
     return {
-        "by_market": by_market,
+        "by_field_set": by_field_set,
         "totals": totals | {"total": total_docs},
         "total_runs": total_runs,
+        "accuracy": _mean_accuracy([a for v in acc_by_set.values() for a in v]),
+        "runs": runs[:max(0, recent)],
     }
 
 
@@ -283,19 +274,21 @@ def technical_metrics(days: int = 30) -> dict[str, Any]:
     chạy. Phiên thiếu số trang thì đơn giá là `None` (hiện "—") thay vì một con số bịa."""
     cutoff = (datetime.now().date() - timedelta(days=max(1, days) - 1)).isoformat()
     by_session: dict[str, dict[str, Any]] = {}
+    since = stats_since()
     for rec in _read_all():
         ts = str(rec.get("ts", ""))
+        if since and ts < since:
+            continue
         sid = str(rec.get("session_id") or "")
         if not ts or ts[:10] < cutoff or not sid:
             continue
         s = by_session.setdefault(sid, {
-            "session_id": sid, "ts": ts, "market_name": "", "job_type_name": "",
+            "session_id": sid, "ts": ts, "field_set_name": "",
             "runs": 0, "files": 0, "pages": 0, "bytes": 0,
             "ocr_seconds": 0.0, "check_seconds": 0.0,
         })
         s["ts"] = max(s["ts"], ts)            # mốc thời gian = LƯỢT MỚI NHẤT của phiên
-        s["market_name"] = rec.get("market_name") or s["market_name"]
-        s["job_type_name"] = rec.get("job_type_name") or s["job_type_name"]
+        s["field_set_name"] = rec.get("field_set_name") or s["field_set_name"]
         s["runs"] += 1
         s["files"] += int(rec.get("num_documents") or 0)
         s["pages"] += int(rec.get("total_pages") or 0)
@@ -312,12 +305,12 @@ def technical_metrics(days: int = 30) -> dict[str, Any]:
     for s in sessions:
         _derive_rates(s)
     _derive_rates(total)
-    # Vân tay kho luật tính MỘT lần ở đây rồi truyền xuống: `quality_metrics` cần nó để
-    # đếm bản ghi lạc hậu, mà tính lại cho từng bản ghi là băm lại cả bộ văn bản luật.
+    # Vân tay kho quy định tính MỘT lần ở đây rồi truyền xuống: `quality_metrics` cần nó để
+    # đếm bản ghi lạc hậu, mà tính lại cho từng bản ghi là băm lại cả bộ văn bản quy định.
     try:
         from app.domain.regulations import corpus  # noqa: PLC0415 — tránh vòng import
         fingerprint = corpus.corpus_fingerprint()
-    except Exception:  # noqa: BLE001 — kho luật hỏng không được làm mất trang chỉ số
+    except Exception:  # noqa: BLE001 — kho quy định hỏng không được làm mất trang chỉ số
         fingerprint = ""
     return {"sessions": sessions, "total": total, "window_days": days,
             "latency": latency_percentiles(),
@@ -340,7 +333,7 @@ def quality_metrics(days: int = 30, current_fingerprint: str = "") -> dict[str, 
     `uncovered_fields` gom theo TRƯỜNG chứ không theo lượt: một trường trượt truy hồi ở
     nhiều lượt là một lỗ hổng của kho quy định, không phải một sự cố ngẫu nhiên.
 
-    `stale_runs` đếm bản ghi có vân tay kho luật KHÁC vân tay hiện tại — những kết luận
+    `stale_runs` đếm bản ghi có vân tay kho quy định KHÁC vân tay hiện tại — những kết luận
     đã sinh ra trên một bộ căn cứ không còn tồn tại."""
     cutoff = (datetime.now().date() - timedelta(days=max(1, days) - 1)).isoformat()
     cov: list[float] = []
@@ -427,9 +420,8 @@ def quality_metrics(days: int = 30, current_fingerprint: str = "") -> dict[str, 
 
 
 def clear_audit() -> dict[str, Any]:
-    """XÓA nhật ký kiểm tra — nguồn DUY NHẤT của cả ba nơi hiển thị lịch sử:
-    trang Thống kê (`aggregate_stats`), trang Lịch sử (`read_audit`/`search_audit`)
-    và phần nhắc hạn (`upcoming_expirations`). Xóa file này là cả ba cùng về 0.
+    """XÓA nhật ký kiểm tra — nguồn DUY NHẤT của trang Thống kê (`aggregate_stats`) và
+    trang Lịch sử (`read_audit`/`search_audit`). Xóa file này là cả hai cùng về 0.
 
     Trả về số bản ghi đã xóa + xác nhận thống kê đã rỗng, để `npm run clear` và nút
     trên trang Thống kê nói được ĐÚNG hệ quả thay vì chỉ "đã xóa"."""

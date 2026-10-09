@@ -27,10 +27,9 @@ backend/chroma_data/
 backend/app/data/settings.json
 backend/app/data/audit.jsonl
 backend/app/data/.admin_token
+# Bộ trường do người dùng tạo trên trang Cấu hình (dữ liệu của từng máy)
+backend/app/data/user_config/
 
 # ===== OS / editor =====
 .DS_Store
 .vscode/
-
-package-lock.json
-package.json

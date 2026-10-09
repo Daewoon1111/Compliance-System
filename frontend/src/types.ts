@@ -6,9 +6,16 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type FieldGroup = "declaration" | "check" | "payer";
+/** Nhóm hiển thị của một trường — suy từ `check_type` của bộ trường. */
+export type FieldGroup = "declaration" | "check";
 
-/** Cờ kiểm soát chất lượng đầu vào (Lớp 1/3/4). */
+/** Kiểu giá trị của một trường trong bộ trường (quyết định cách trích xuất + ô sửa). */
+export type ValueType = "text" | "date" | "number" | "money";
+
+/** Cách kiểm tra một trường: đối chiếu quy định · chỉ khai báo · số nguyên dương. */
+export type CheckType = "regulated" | "declaration" | "positive_integer";
+
+/** Cờ kiểm soát chất lượng đầu vào (cổng OCR + ngày ký). */
 export type InputFlag = {
   level: "warn" | "error";
   code: string;
@@ -16,11 +23,6 @@ export type InputFlag = {
   field?: string | null;
   block_field?: boolean;
   needs_signed_date?: boolean;
-  /** Trích đoạn NGUYÊN VĂN trong hồ sơ đã làm cờ này bật (cờ khoản thu lạ /
-   *  giữ giấy tờ tùy thân). Backend sinh ở `quality.py > _fee_flag`. */
-  snippet?: string | null;
-  /** Bước kiểm tra sẽ tạo thêm một check FAIL từ cờ này (`reconcile.py`). */
-  synthetic_check?: boolean;
 };
 
 export type ExtractedField = {
@@ -29,47 +31,29 @@ export type ExtractedField = {
   confidence: number;
   evidence: { short_quote: string | null; source: string | null };
   group?: FieldGroup;
-  /** Nhóm con trong một `group` (vd "Lương & khấu trừ") — dùng chia tiểu mục ở trang 2. */
+  /** Mục trong bộ trường (`fields_catalog[k].section`) — chia nhóm ở trang soát. */
   section?: string;
-  check_type?: "regulated" | "declaration" | "deferred_foreign";
+  check_type?: CheckType;
+  value_type?: ValueType;
 };
 
 export type ContractJson = {
+  /** = `document_kind` của bộ trường (vd "hợp đồng"). */
   document_type: string;
   contract_meta: {
     session_id: string;
-    job_id: string;
+    field_set_id: string;
+    field_set_name: string;
+    /** Mã trường ngày ký trong bộ trường ("" = bộ trường không khai). */
+    signed_date_field: string;
     source_file: string;
     language: string;
-    signed_date?: string;
-    created_at?: string;
-    /** KHU VỰC — tầng cha của lựa chọn (Đông Bắc Á, Đông Nam Á…). */
-    region_id?: string;
-    region_name?: string;
-    market_id?: string;
-    market_name?: string;
-    country_id?: string;
-    country_name?: string;
-    job_type_id?: string;
-    job_type_name?: string;
-    /** TÊN CÔNG VIỆC ghi trong hợp đồng ("Nông nghiệp") — đọc từ mục "Ngành, nghề".
-     *  Không nằm trong `extracted_fields`: đây là nhãn phụ của Loại hình công việc,
-     *  không có ngưỡng nào để đối chiếu. */
-    job_title?: string;
-    /** Thời hạn hợp đồng đọc được từ OCR ("3 năm") + số tháng đã quy đổi. */
-    contract_duration?: string;
-    contract_duration_months?: number | null;
   };
   extracted_fields: Record<string, ExtractedField>;
   derived?: { signed_date?: { value: string | null; confidence: number; from_field: string | null } };
   missing_fields: string[];
   warnings: string[];
   input_flags?: InputFlag[];
-  completeness?: {
-    required_total: number;
-    required_missing: string[];
-    is_complete: boolean;
-  };
 };
 
 /** 1 file = 1 document trong phiên (đa file). */
@@ -91,6 +75,84 @@ export type CreateSessionResponse = {
   }[];
 };
 
+/** Một bộ trường (loại hồ sơ) như `GET /field-sets` liệt kê. */
+export type FieldSetInfo = {
+  id: string;
+  source: "default" | "user";
+  display_name: string;
+  description: string;
+  document_kind?: string;
+  fields: number;
+  /** Bộ quy định bộ kiểm tra đối chiếu (rỗng = toàn kho). */
+  regulation_sets?: string[];
+  /** Tệp bộ trường hỏng — vẫn liệt kê để người dùng biết vì sao không chọn được. */
+  error?: string;
+};
+
+/** BỘ QUY ĐỊNH — nhóm văn bản quy định có tên do người dùng nạp. */
+export type RegulationSet = {
+  name: string;
+  documents: number;
+  files: string[];
+  titles: string[];
+};
+
+/** Một thông tin gợi ý từ MÔ TẢ BẰNG LỜI (POST /config/draft) — đổ vào bảng soạn. */
+export type DraftField = {
+  label: string;
+  label_alts: string[];
+  value_type: ValueType;
+  check_type: CheckType;
+  check_aspect: string;
+  required: boolean;
+  is_signed_date: boolean;
+};
+
+export type CheckSetDraft = {
+  document_kind: string;
+  fields: DraftField[];
+  /** "llm" = mô hình AI gợi ý; "rules" = tách theo quy tắc (mô hình lỗi/chậm hoặc tắt). */
+  source: "llm" | "rules";
+  note: string;
+};
+
+export type RegulationUploadResult = {
+  set: string;
+  added: { file: string; saved_as: string; note: string }[];
+  skipped: { file: string; error: string }[];
+  reseeded: boolean;
+  note: string;
+};
+
+/** VÙNG CẦN KIỂM TRA của MỘT file: trang bỏ qua (không tick "quét trang") + vùng
+ * hình chữ nhật theo trang, tọa độ chuẩn hóa 0..1 gốc TRÊN-TRÁI [x0, y0, x1, y1]. */
+export type FileRegion = {
+  skip: number[];
+  rects: Record<number, [number, number, number, number]>;
+};
+
+/** Chỉ số chất lượng đọc của một bộ hồ sơ (tỉ lệ 0..1; null = không áp dụng). */
+export type AccuracyMetrics = {
+  cer: number | null;
+  wer: number | null;
+  ocr_accuracy: number | null;
+  field_accuracy: number | null;
+  table_accuracy: number | null;
+  number_accuracy: number | null;
+  date_accuracy: number | null;
+  fields?: number;
+  fields_correct?: number;
+  fields_edited?: number;
+  runs?: number;
+};
+
+export type AccuracyRun = {
+  ts: string;
+  session_id: string;
+  field_set_name: string;
+  source_files: string[];
+  accuracy: AccuracyMetrics;
+};
 
 export type Citation = {
   chunk_id?: string;
@@ -103,21 +165,21 @@ export type Citation = {
   auto_matched?: boolean;
 };
 
+export type Verdict = "PASS" | "FAIL" | "NEEDS_SUPPLEMENT" | "DECLARATION";
+
 export type CheckResult = {
   check_id: string;
   title: string;
   group?: FieldGroup;
+  /** Mục trong bộ trường — trang kết quả chia thẻ nhóm theo đây. */
+  section?: string;
   severity: "critical" | "high" | "medium" | "low";
-  field_value?: string | number | null;
+  field_value?: JsonValue;
   reasoning?: string;
-  verdict: "PASS" | "FAIL" | "NEEDS_SUPPLEMENT" | "NOT_APPLICABLE" | "DECLARATION" | "DEFERRED_FOREIGN";
+  verdict: Verdict;
   reason: string;
-  /** Trích đoạn HỒ SƠ (evidence lúc trích xuất) — giải trình đầy đủ cho mỗi lỗi. */
+  /** Trích đoạn HỒ SƠ (evidence lúc trích xuất) — giải trình đầy đủ cho mỗi kết luận. */
   contract_quote?: string;
-  /** Playbook tuân thủ (Tầng 3.1): điều luật + rủi ro + mẫu sửa theo thị trường. */
-  playbook?: { law?: string; risk?: string; fix?: string };
-  /** Trích đoạn KHOẢN THU LẠ quét được trong hồ sơ — kèm khoản chi phí bị xét không hợp lệ. */
-  fee_warnings?: string[];
   missing_fields?: string[];
   fields_used?: string[];
   citations?: Citation[];
@@ -134,7 +196,6 @@ export type DocResult = {
   input_flags?: InputFlag[];
 };
 
-/** Báo cáo kiểm tra cả phiên (đa file). */
 /** Số đo kỹ thuật của MỘT lượt kiểm tra (backend: app/metrics.py).
  * Mọi số đều có thể là null khi chưa đo được — hiển thị phải chịu được điều đó. */
 export type RunMetrics = {
@@ -181,7 +242,7 @@ export type TechTotals = {
 
 export type TechSession = TechTotals & {
   session_id: string; ts: string;
-  market_name: string; job_type_name: string;
+  field_set_name: string;
 };
 
 /** CHỈ SỐ CHẤT LƯỢNG gộp trên nhật ký — phủ truy hồi, độ chính xác trích dẫn, tải LLM.
@@ -217,7 +278,7 @@ export type QualityMetrics = {
   };
 };
 
-/** Một văn bản trong ĐĂNG BẠ kho luật + trạng thái đối chiếu với file thật trên đĩa. */
+/** Một văn bản trong ĐĂNG BẠ kho quy định + trạng thái đối chiếu với file thật trên đĩa. */
 export type CorpusDoc = {
   file: string;
   title: string;
@@ -284,76 +345,49 @@ export type TechMetrics = {
   };
 };
 
+/** Báo cáo kiểm tra cả phiên (backend: compliance/report.py + routers/sessions.py). */
 export type ValidateResponse = {
   documents: DocResult[];
   metrics?: RunMetrics;
   overall_verdict: "PASS" | "FAIL" | "NEEDS_SUPPLEMENT";
-  /** Khoản thu / chi phí LẠ trong hồ sơ — gạch đầu dòng trong khung kết luận chung. */
-  fee_anomalies?: string[];
-  dossier?: DossierAnalysis;
-  job_name?: string;
-  region_name?: string;
-  market_name?: string;
-  country_name?: string;
-  job_type_name?: string;
-  /** Tên công việc ghi trong hợp đồng — xem `contract_meta.job_title`. */
-  job_title?: string;
-  contract_duration?: string;
+  field_set_id?: string;
+  field_set_name?: string;
+  document_kind?: string;
+  /** Ngày ký đã dùng để lọc hiệu lực văn bản quy định ("" = không biết). */
+  signed_date?: string;
   checked_at?: string;
+  /** Tên các file của phiên, theo thứ tự tải lên. */
+  source_files?: string[];
   /** Siêu dữ liệu của lượt kiểm tra. `cached` = báo cáo lấy lại từ đĩa (không chạy lại
-   *  LLM); `corpus_fingerprint` = vân tay kho luật lúc kết luận được sinh ra. */
+   *  LLM); `corpus_fingerprint` = vân tay kho quy định lúc kết luận được sinh ra. */
   _meta?: { req_sig?: string; corpus_fingerprint?: string; cached?: boolean };
 };
 
 /** Lựa chọn trường cần kiểm cho từng document. */
 export type DocSelection = { doc_id: string; selected_fields: string[] };
 
-
-export type JobType = { id: string; name: string };
-/** Quốc gia/vùng lãnh thổ trong một thị trường (keywords dùng cho đối chiếu chéo ở backend). */
-export type Country = { id: string; name: string; region_id?: string; keywords?: string[] };
-export type Region = { id: string; name: string };
-export type Market = {
-  id: string; name: string; job_id: string;
-  /** Thị trường KHÔNG có bước quốc gia (vd Biển quốc tế): chọn khu vực này -> vào thẳng thị trường. */
-  region_id?: string;
-  countries?: Country[];
-  job_types: JobType[];
-};
-export type MarketsConfig = { regions?: Region[]; markets: Market[] };
-
-// ── Thống kê / nhật ký / admin (DEV2, DEV4, DEV5) ──
-export type MarketStat = { PASS: number; FAIL: number; NEEDS_SUPPLEMENT: number; total: number };
+// ── Thống kê / nhật ký / admin ──
+export type VerdictStat = { PASS: number; FAIL: number; NEEDS_SUPPLEMENT: number; total: number };
 export type StatsResponse = {
-  by_market: Record<string, MarketStat>;
-  totals: MarketStat & { total: number };
+  by_field_set: Record<string, VerdictStat & { accuracy?: AccuracyMetrics }>;
+  totals: VerdictStat;
   total_runs: number;
+  accuracy?: AccuracyMetrics;
+  runs?: AccuracyRun[];
 };
 export type AuditDoc = { doc_id: string; source_file: string; overall_verdict: string; num_fail: number };
 
-/** Nhắc hạn hợp đồng (Tầng 3.3). */
-export type ExpiringContract = {
-  session_id: string; market_name: string; job_type_name: string;
-  signed_date: string; duration_months: number; expires_on: string; days_left: number;
-};
 export type AuditRecord = {
   ts: string;
   session_id: string;
-  market_name: string;
-  job_type_name: string;
+  field_set_id: string;
+  field_set_name: string;
+  signed_date: string;
+  source_files?: string[];
   num_documents: number;
   documents: AuditDoc[];
 };
 export type AdminFile = { group: string; name: string; rel: string; type: string; display: string };
-
-/** Cấu hình do NGƯỜI DÙNG tạo ở trang Cấu hình (bộ trường công việc / thị trường). */
-export type UserConfigKind = "jobs" | "markets";
-export type UserConfigItem = {
-  kind: UserConfigKind;
-  id: string;
-  display: string;
-  applied: boolean;
-};
 
 /** Kết quả KIỂM TRA DATABASE ở trang Quản trị. */
 export type DbStatus = {
@@ -368,10 +402,9 @@ export type DbStatus = {
   configs: {
     ok: boolean;
     by_group: Record<string, number>;
-    user_configs: UserConfigItem[];
-    applied: Record<string, string[]>;
+    field_sets: FieldSetInfo[];
   };
-  /** Đăng bạ kho luật — thiếu khóa này nghĩa là backend cũ hơn frontend. */
+  /** Đăng bạ kho quy định — thiếu khóa này nghĩa là backend cũ hơn frontend. */
   corpus?: {
     ok: boolean;
     counts?: Record<string, number>;
@@ -379,15 +412,6 @@ export type DbStatus = {
     documents?: number;
     error?: string;
   };
-};
-
-/** Thông tin thị trường + loại hình lao động gửi khi tạo phiên. */
-export type SessionChoice = {
-  market: string;
-  country?: string;
-  job_type: string;
-  market_other?: string;
-  job_type_other?: string;
 };
 
 export type OcrLine = {
@@ -410,20 +434,4 @@ export type OcrResult = {
   pages: OcrLine[][];
   full_text: string;
   stats: OcrStats;
-};
-
-/** Phân tích BỘ HỒ SƠ đa tài liệu (A3 đủ thành phần + C1 loại giấy phép). */
-/** `label_en` do backend trả kèm (checks.json > dossier.roles.labels_en) — đổi ngôn
- *  ngữ không phải gọi lại API. Báo cáo cũ chưa có khóa này -> lùi về `label`. */
-export type DossierRole = {
-  source_file: string; role: string; label: string; label_en?: string;
-};
-export type DossierFlag = { level: "warn" | "error"; code: string; message: string };
-export type DossierAnalysis = {
-  roles?: DossierRole[];
-  required_components?: string[];
-  missing_components?: string[];
-  declared_count?: number | null;
-  doc_type_issues?: { source_file: string; issue: string }[];
-  flags?: DossierFlag[];
 };

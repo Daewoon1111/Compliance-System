@@ -118,6 +118,25 @@ def ink_axis_ratio(img) -> float:
     return h / max(v, 1e-6)
 
 
+# Trang TRẮNG: tỉ lệ điểm mực dưới ngưỡng này (đo trên ảnh thu nhỏ ~1000 px). Một dòng chữ
+# ngắn đã vượt xa ngưỡng; bụi, viền máy quét, số trang lẻ loi thì không.
+BLANK_INK_RATIO = 0.0008
+
+
+def is_blank(img) -> bool:
+    """Trang không có chữ (trang trắng, trang ngăn cách của bản quét).
+
+    PHẢI chặn trước khi đưa vào mô hình đọc ảnh: Vintern gặp trang trắng không trả rỗng mà
+    BỊA ra chữ ("NGUYÊN VĂN TẤN TẤN…") — đo thật trên một PDF 3 trang trắng. Chữ bịa đi
+    thẳng vào hồ sơ hoặc kho quy định, và tốn cả phút đọc mỗi trang cho không gì cả."""
+    import numpy as np  # noqa: PLC0415
+
+    g = img.convert("L")
+    g.thumbnail((1000, 1000))
+    ink = np.asarray(g) < 160
+    return float(ink.mean()) < BLANK_INK_RATIO
+
+
 def _thumb(img, k: int):
     t = img.rotate(90 * k, expand=True) if k else img.copy()
     t.thumbnail((896, 896))
@@ -136,9 +155,14 @@ def choose_rotation(img) -> int:
 
 
 def ocr_image_lines(img, with_meta: bool = False):
-    """Ảnh trang PIL -> [{text, conf}] (xoay + xóa mộc + lọc chữ nước ngoài)."""
+    """Ảnh trang PIL -> [{text, conf}] (xoay + xóa mộc + lọc chữ nước ngoài).
+
+    Trang trắng (sau khi xóa mộc) -> [] ngay, không gọi mô hình (xem `is_blank`)."""
     if settings.ocr_remove_red_stamp:
         img = remove_red_stamp(img)
+    if is_blank(img):
+        print("[ocr] trang trắng — bỏ qua, không đọc.")
+        return ([], {"rotate_k": 0, "h": int(img.size[1]), "w": int(img.size[0])}) if with_meta else []
     k = choose_rotation(img)
     if k:
         img = img.rotate(90 * k, expand=True)
@@ -170,5 +194,5 @@ def _avg_conf(lines: list[dict[str, Any]]) -> float:
     return sum(conf) / len(conf) if conf else 0.0
 
 
-__all__ = ["DocumentTooLargeError", "choose_rotation", "ink_axis_ratio", "ocr_image_lines", "open_pdf",
+__all__ = ["DocumentTooLargeError", "choose_rotation", "ink_axis_ratio", "is_blank", "ocr_image_lines", "open_pdf",
            "remove_red_stamp", "render_page", "render_pages"]

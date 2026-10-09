@@ -1,4 +1,4 @@
-"""NGHIỆP VỤ ĐỌC HỒ SƠ (enrich) — LLM bù trường regex bỏ sót + merge CHỐNG BỊA (đòi bằng chứng, trần conf 0.7, không ghi đè regex).
+"""NGHIỆP VỤ ĐỌC HỒ SƠ (enrich) — mô hình bù trường luật bỏ sót + merge CHỐNG BỊA (đòi bằng chứng, trần conf 0.7, không ghi đè regex).
 
   - build_extraction_payload / extraction_schema — payload + JSON Schema (structured outputs).
   - run_llm_extraction — gọi LLM (extraction_model) trích các trường regex còn thiếu.
@@ -19,7 +19,7 @@ from app.domain.documents.rules import (
     clean_value,
 )
 from app.llm import call_llm_json
-from app.store import field_label, load_extraction_config, load_extraction_llm_prompt
+from app.store import field_label, field_value_type, keys_of_type, load_extraction_llm_prompt
 
 
 # ===========================================================================
@@ -30,19 +30,19 @@ def _llm_fields_payload(
     job_prompt: dict[str, Any], only_keys: set[str] | None = None
 ) -> list[dict[str, str]]:
     """Danh sách trường cho LLM: key + label + hint. Hint = fill_hint + mẫu định dạng
-    (format_hints trong extraction_llm.json) để LLM dễ nhận dạng giá trị.
+    theo KIỂU giá trị (`format_hints_by_type` trong extraction_llm.json).
 
     only_keys: nếu truyền vào, CHỈ gửi các trường này (các trường regex còn thiếu) ->
     LLM tập trung đúng việc, ít token, ít trường đầu ra.
     """
     fc = job_prompt.get("fields_catalog", {}) or {}
-    fmt = (load_extraction_llm_prompt().get("format_hints") or {})
+    fmt = (load_extraction_llm_prompt().get("format_hints_by_type") or {})
     out: list[dict[str, str]] = []
     for key, entry in fc.items():
         if only_keys is not None and key not in only_keys:
             continue
         hint = entry.get("fill_hint", "") if isinstance(entry, dict) else ""
-        ex = fmt.get(key)
+        ex = fmt.get(field_value_type(entry))
         if ex:
             hint = (hint + " | Dạng: " + ex).strip(" |").strip()
         out.append({"key": key, "label": field_label(entry, key), "hint": hint})
@@ -57,15 +57,16 @@ def build_extraction_payload(
     """Trả về (system, user_payload) cho LLM trích xuất.
 
     Hướng dẫn (task + post_rules) gộp vào system (gửi 1 lần); user_payload chỉ còn
-    DỮ LIỆU cần xử lý: fields (các trường cần điền) + contract_text + ví dụ mẫu.
-    only_keys: chỉ yêu cầu LLM trích các trường này (regex còn thiếu)."""
+    DỮ LIỆU cần xử lý: loại tài liệu + fields (các trường cần điền) + document_text.
+    only_keys: chỉ yêu cầu LLM trích các trường này (luật còn thiếu)."""
     prompt = load_extraction_llm_prompt()
     system = list(prompt.get("system", []))
     system += list(prompt.get("task", []))
     system += list(prompt.get("post_rules", []))
     user_payload = {
+        "document_kind": job_prompt.get("document_kind") or job_prompt.get("display_name") or "",
         "fields": _llm_fields_payload(job_prompt, only_keys),
-        "contract_text": normalized_text,
+        "document_text": normalized_text,
         "examples": prompt.get("examples", []),
         "output_schema": prompt.get("output_schema", {}),
     }
@@ -144,22 +145,15 @@ def _is_placeholder(value: Any) -> bool:
     return _fold(value).strip().lower().strip(".!") in _PLACEHOLDER_VALUES
 
 
-def typed_keys() -> tuple[set, set]:
-    """(number_keys, date_keys) từ cấu hình extraction — dùng ÉP KIỂU giá trị LLM."""
-    cfg = load_extraction_config()
-    return set((cfg.get("number_rules") or {}).keys()), set((cfg.get("date_rules") or {}).keys())
+def typed_keys(fields_catalog: dict[str, Any]) -> tuple[set, set]:
+    """(number_keys, date_keys) theo `value_type` của bộ trường — dùng ÉP KIỂU giá trị."""
+    return keys_of_type(fields_catalog, "number"), keys_of_type(fields_catalog, "date")
 
 
-def money_keys() -> set:
-    """Tập trường SỐ TIỀN (theo cấu hình extraction). Trường NGOÀI tập này là trường
-    VĂN BẢN/SỐ/NGÀY -> không được nhận giá trị dạng tiền ('0 VND')."""
-    cfg = load_extraction_config()
-    keys: set = set((cfg.get("money_main_rules") or {}).keys())
-    keys |= set((cfg.get("money_label_map") or {}).keys())
-    keys |= set(cfg.get("money_like_keys") or [])
-    for s in (cfg.get("money_section_rules") or []):
-        keys |= set((s.get("fields") or {}).keys())
-    return keys
+def money_keys(fields_catalog: dict[str, Any]) -> set:
+    """Tập trường SỐ TIỀN. Trường NGOÀI tập này là trường VĂN BẢN/SỐ/NGÀY -> không được
+    nhận giá trị dạng tiền ('0 VND')."""
+    return keys_of_type(fields_catalog, "money")
 
 
 # Chuỗi CHỈ gồm con số + (tùy chọn) đơn vị tiền: '0 VND', '1.200 USD', '0'.
@@ -198,8 +192,7 @@ _PERIOD_MAP = {
     "thang": "tháng", "month": "tháng", "nam": "năm", "year": "năm",
     "tuan": "tuần", "week": "tuần", "ngay": "ngày", "day": "ngày",
     "gio": "giờ", "hour": "giờ", "lan": "lần", "luot": "lượt",
-    "nguoi": "người", "person": "người", "khoa": "khóa",
-    "hop dong": "hợp đồng", "contract": "hợp đồng", "ca": "ca",
+    "hop dong": "hợp đồng", "contract": "hợp đồng",
 }
 
 
@@ -222,7 +215,7 @@ def _unwrap_llm_object(value: Any) -> Any:
 
 def _digits_supported(value: str, *spaces: str) -> bool:
     """MỌI cụm số trong giá trị phải tồn tại trong văn bản/bằng chứng (đã bỏ dấu).
-    Chặn LLM chèn con số của trường khác vào (vd 'có nghề: 8' -> '8 tàu cá xa bờ')."""
+    Chặn LLM chèn con số của trường khác vào giá trị đang xét."""
     for tok in re.findall(r"\d[\d.,]*", value):
         digits = re.sub(r"\D", "", tok)
         if not digits:
@@ -281,12 +274,18 @@ def _value_grounded(value: Any, quote: str | None, folded_text: str) -> bool:
 
       · chuỗi  -> mọi cụm số có trong cửa sổ, và cửa sổ phủ >= 90% ký tự của giá trị;
       · tiền   -> chữ số của `amount` có trong cửa sổ (0 đi kèm chữ 'không'/'miễn');
-      · số     -> chữ số có trong cửa sổ."""
+      · số     -> chữ số có trong cửa sổ;
+      · ngày   -> ngày, tháng, năm (của bản ISO) đều có trong cửa sổ."""
     if not folded_text:
         return True
     window = _evidence_window({"evidence_quote": quote}, value, folded_text)
     if window is None:
         return False
+    if isinstance(value, str) and (iso := re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", value)):
+        # NGÀY đã chuẩn hóa ISO không còn trùng mặt chữ văn bản ('05/03/2025',
+        # 'ngày 5 tháng 3 năm 2025') -> đòi đủ NGÀY, THÁNG, NĂM có mặt trong cửa sổ.
+        nums = {int(n) for n in re.findall(r"\d{1,4}", window)}
+        return all(int(x) in nums for x in iso.groups())
     digits_in_window = re.sub(r"\D", "", window)
     if isinstance(value, dict):
         amount = value.get("amount")
@@ -327,8 +326,8 @@ def _respell_ok(new_value: Any, old_value: Any) -> bool:
 def _coerce_typed_value(key: str, value: Any, number_keys: set, date_keys: set) -> Any:
     """Ép giá trị LLM về ĐÚNG KIỂU của trường; sai kiểu -> None (loại, không nhận bừa).
 
-      - Trường SỐ LƯỢNG: chỉ nhận số nguyên; LOẠI chuỗi có đơn vị tiền tệ
-        (vd '106.757.000 VND' điền vào 'tổng số lao động') và số >6 chữ số.
+      - Trường SỐ: chỉ nhận số nguyên; LOẠI chuỗi có đơn vị tiền tệ (số tiền điền nhầm
+        vào trường số lượng) và số >6 chữ số.
       - Trường NGÀY: phải parse được về YYYY-MM-DD.
     """
     if key in number_keys:
@@ -339,7 +338,7 @@ def _coerce_typed_value(key: str, value: Any, number_keys: set, date_keys: set) 
         if isinstance(value, float):
             return int(value) if value.is_integer() and len(str(int(abs(value)))) <= 6 else None
         if isinstance(value, str):
-            if re.search(r"(?i)\b(VND|VNĐ|USD|JPY|EUR|KRW|SGD|MYR|THB|IDR|PHP|AUD|CAD)\b", value):
+            if re.search(r"(?i)\b(VND|VNĐ|USD|JPY|EUR|KRW|CNY|SGD|MYR|THB|IDR|PHP|AUD|CAD|GBP)\b", value):
                 return None  # số tiền, không phải số lượng
             digits = re.sub(r"[^\d]", "", value)
             if digits and len(digits) <= 6:
@@ -355,6 +354,7 @@ def _coerce_typed_value(key: str, value: Any, number_keys: set, date_keys: set) 
 def merge_llm_extraction(
     contract_json: dict[str, Any],
     llm_fields: dict[str, Any],
+    fields_catalog: dict[str, Any],
     *,
     min_confidence: float = 0.0,
     respell_keys: set[str] | None = None,
@@ -370,8 +370,8 @@ def merge_llm_extraction(
     extracted = contract_json.get("extracted_fields", {}) or {}
     missing = set(contract_json.get("missing_fields", []) or [])
     folded_text = _fold((contract_json.get("raw", {}) or {}).get("normalized_text", "") or "").lower()
-    number_keys, date_keys = typed_keys()
-    money_set = money_keys()
+    number_keys, date_keys = typed_keys(fields_catalog)
+    money_set = money_keys(fields_catalog)
     respell = respell_keys or set()
 
     for key, info in (llm_fields or {}).items():
@@ -444,6 +444,7 @@ def merge_llm_extraction(
             "label": prev.get("label"),
             "group": prev.get("group", "check"),
             "check_type": prev.get("check_type", "regulated"),
+            "value_type": prev.get("value_type", "text"),
             "section": prev.get("section", ""),
             "value": value,
             "confidence": max(0.0, min(1.0, conf)),

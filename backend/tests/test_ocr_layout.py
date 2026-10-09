@@ -1,5 +1,6 @@
 """Test tầng ĐỌC ẢNH (không nạp Vintern thật): độ tin cậy theo dòng, làm sạch markdown,
-cắt vòng lặp, chia đôi trang dày, tự xoay, xóa mộc, đối chứng lớp văn bản."""
+cắt vòng lặp, chia đôi trang dày, tự xoay, xóa mộc, đối chứng lớp văn bản, neo cắt văn
+bản, khôi phục dấu."""
 from __future__ import annotations
 
 import pytest
@@ -12,17 +13,19 @@ from app.domain.documents.ocr import layout, vintern
 # Vintern — hàm thuần
 # ---------------------------------------------------------------------------
 def test_line_confidences_gom_theo_dong():
-    # token: "Tiền"(0.9) "lương"(0.7) "\n"(—) "5"(0.5) "\n\n"(—) "Hết"(1.0)
+    # token: "Giá"(0.9) "trị"(0.7) "\n"(—) "5"(0.5) "\n\n"(—) "Hết"(1.0)
     newlines = [0, 0, 1, 0, 2, 0]
     probs = [0.9, 0.7, 0.99, 0.5, 0.99, 1.0]
     assert vintern.line_confidences(newlines, probs) == [0.8, 0.5, 0.0, 1.0]
 
 
 def test_to_lines_lam_sach_markdown_va_bang():
-    text = "# HỢP ĐỒNG\n**Tiền lương**: 150.000 JPY\n| Nhãn | Giá trị |\n|---|---|\n| Ký quỹ | 0 VND |\n| A | B | C |\n```"
+    text = ("# HỢP ĐỒNG\n**Giá trị hợp đồng**: 120.000.000 VND\n| Nhãn | Giá trị |\n|---|---|\n"
+            "| Thuế GTGT | 0 VND |\n| A | B | C |\n```")
     lines, looped = vintern.to_lines(text, [0.9] * 7)
     assert [ln["text"] for ln in lines] == [
-        "HỢP ĐỒNG", "Tiền lương: 150.000 JPY", "Nhãn: Giá trị", "Ký quỹ: 0 VND", "A | B | C"]
+        "HỢP ĐỒNG", "Giá trị hợp đồng: 120.000.000 VND", "Nhãn: Giá trị", "Thuế GTGT: 0 VND",
+        "A | B | C"]
     assert not looped and all(ln["conf"] == 0.9 for ln in lines)
 
 
@@ -124,9 +127,9 @@ def test_remove_red_stamp_giu_chu_den():
 def test_ocr_image_lines_loc_chu_nuoc_ngoai(monkeypatch):
     monkeypatch.setattr(layout, "choose_rotation", lambda img: 0)
     monkeypatch.setattr(vintern, "transcribe", lambda img: [
-        {"text": "技能実習生 制度", "conf": 0.9}, {"text": "Tiền lương 月給 150.000", "conf": 0.9}])
+        {"text": "契約書 制度", "conf": 0.9}, {"text": "Giá trị 金額 120.000.000", "conf": 0.9}])
     lines, meta = layout.ocr_image_lines(_trang_chu(), with_meta=True)
-    assert [ln["text"] for ln in lines] == ["Tiền lương 150.000"]
+    assert [ln["text"] for ln in lines] == ["Giá trị 120.000.000"]
     assert meta["rotate_k"] == 0 and meta["w"] == 1240
 
 
@@ -138,30 +141,35 @@ def test_page_window_lay_lan_xuat_hien_dau_tien():
 
     ln = lambda t: {"text": t}  # noqa: E731
     pages = [
-        {"index": 0, "lines": [ln("HỢP ĐỒNG CUNG ỨNG LAO ĐỘNG")]},
-        {"index": 1, "lines": [ln("Điều 3. Tiền dịch vụ: 30.000.000 VND")]},
-        {"index": 2, "lines": [ln("Phụ lục kèm theo Hợp đồng cung ứng lao động số 12")]},
+        {"index": 0, "lines": [ln("Công ty TNHH Minh Phát")]},
+        {"index": 1, "lines": [ln("HỢP ĐỒNG DỊCH VỤ"), ln("Giá trị hợp đồng: 120.000.000 VND")]},
+        {"index": 2, "lines": [ln("Phụ lục kèm theo Hợp đồng dịch vụ số 15/2025/HĐDV")]},
+        {"index": 3, "lines": []},                       # trang ảnh: luôn trong cửa sổ
     ]
-    assert _page_window(pages, None)[:2] == (0, 2)
+    assert _page_window(pages, None)[:2] == (0, 3)
+    # Neo bắt đầu: lấy lần xuất hiện ĐẦU TIÊN (trang 1), lần sau trong phụ lục không kéo đi.
+    assert _page_window(pages, "hợp đồng dịch vụ") == (1, 3, False)
 
 
 def test_text_agreement():
     from app.domain.documents.pipeline import text_agreement
 
-    same = "Tiền lương cơ bản 150.000 JPY mỗi tháng làm việc tại Aichi"
+    same = "Giá trị hợp đồng 120.000.000 VND thanh toán bằng chuyển khoản trong 30 ngày"
     assert text_agreement(same, same) == 1.0
-    assert text_agreement(same, "Tien luong co ban 150.000 JPY moi thang lam viec tai Aichi") == 1.0
-    assert text_agreement(same, "Người lao động nộp phí môi giới 5.000 USD") < 0.3
+    assert text_agreement(
+        same, "Gia tri hop dong 120.000.000 VND thanh toan bang chuyen khoan trong 30 ngay") == 1.0
+    assert text_agreement(same, "Bên B chịu phạt vi phạm 500.000.000 USD") < 0.3
+    assert text_agreement("", same) == 0.0
 
 
 def test_lop_van_ban_lech_anh_bi_bo(monkeypatch):
     from app.domain.documents import pipeline
 
-    hidden = [{"text": "Không thu bất kỳ khoản phí nào của người lao động", "conf": 1.0}] * 3
+    hidden = [{"text": "Giá trị hợp đồng: 120.000.000 VND, đã gồm thuế", "conf": 1.0}] * 3
     plan = {"total": 2, "from_text": [0, 1], "need_ocr": [],
             "pages": [{"index": i, "lines": hidden, "chars": 300, "meta": {"rotate_k": 0}}
                       for i in (0, 1)]}
-    visible = [{"text": "Phí môi giới người lao động nộp: 5.000 USD", "conf": 0.9}]
+    visible = [{"text": "Bên B chịu phạt vi phạm: 500.000.000 USD", "conf": 0.9}]
     monkeypatch.setattr(pipeline, "render_pages",
                         lambda data, idx=None, dpi=None: iter([(i, object()) for i in (idx or [])]))
     monkeypatch.setattr(pipeline, "ocr_image_lines", lambda img, with_meta=False: (visible, {"rotate_k": 0}))
@@ -171,66 +179,69 @@ def test_lop_van_ban_lech_anh_bi_bo(monkeypatch):
     assert all(pg == visible for pg in pages)
 
 
-def test_spelling_restores_vietnamese_diacritics():
-    """C2 — khôi phục dấu bằng từ điển dựng từ corpus luật (không LLM)."""
-    from app.domain.documents.spelling import restore_diacritics
-    out = restore_diacritics("Ngui s dng lao dng phi t chc hun luyn an toan")
-    assert "sử dụng lao động" in out and "huấn luyện" in out
+# ---------------------------------------------------------------------------
+# spelling — khôi phục dấu bằng từ điển (không mô hình)
+# ---------------------------------------------------------------------------
+_CORPUS = [
+    "Phương thức thanh toán: chuyển khoản. Giải quyết tranh chấp tại Tòa án nhân dân có thẩm quyền.",
+    "Hai bên thống nhất phương thức thanh toán và giải quyết tranh chấp theo hợp đồng.",
+    "Giá trị hợp đồng đã bao gồm thuế giá trị gia tăng.",
+]
+
+
+@pytest.fixture()
+def tu_dien(monkeypatch):
+    """Từ điển dựng từ corpus CỐ ĐỊNH — test không phụ thuộc kho quy định đang có gì."""
+    from app.domain.documents import spelling
+
+    monkeypatch.setattr(spelling, "_corpus_texts", lambda: list(_CORPUS))
+    spelling.reset_lexicon()
+    yield spelling
+    spelling.reset_lexicon()        # trả từ điển THẬT cho test sau
+
+
+def test_spelling_restores_vietnamese_diacritics(tu_dien):
+    out = tu_dien.restore_diacritics("Phng thc thanh toan: chuyn khon")
+    assert out == "Phương thức thanh toán: chuyển khoản"
+    assert tu_dien.restore_diacritics("Gii quyt tranh chp ti Toa an nhan dan") == (
+        "Giải quyết tranh chấp tại Tòa án nhân dân")
     # Văn bản đã đúng chính tả -> KHÔNG bị đổi
-    ok = "Người sử dụng lao động phải tổ chức huấn luyện an toàn, vệ sinh lao động"
-    assert restore_diacritics(ok) == ok
+    ok = "Giá trị hợp đồng đã bao gồm thuế giá trị gia tăng."
+    assert tu_dien.restore_diacritics(ok) == ok
     # Không đủ căn cứ -> giữ nguyên (không đoán bừa)
-    assert restore_diacritics("Osawa Haruda Iga-shi") == "Osawa Haruda Iga-shi"
+    assert tu_dien.restore_diacritics("Osawa Haruda Iga-shi") == "Osawa Haruda Iga-shi"
 
 
-def test_phrase_bank_canonicalizes_value():
-    """C1 — giá trị OCR gần một cụm chuẩn -> thay bằng bản chuẩn, evidence giữ bản gốc."""
-    from app.domain.documents.spelling import canonicalize_fields
-    raw = "TTS duc tham gia cac loi bo him theo quy dnh ca phap lut Nht Bn"
-    c = {
-        "extracted_fields": {"cac_che_do_bao_hiem": {
-            "value": raw, "confidence": 0.42, "evidence": {}}},
-        "missing_fields": [],
-        "raw": {"normalized_text": raw},
-    }
-    out = canonicalize_fields(c, "nhat_ban")["extracted_fields"]["cac_che_do_bao_hiem"]
-    assert out["value"].startswith("Người lao động được tham gia các loại bảo hiểm")
-    assert out["evidence"]["source"] == "PHRASE_BANK"
-    assert out["evidence"]["short_quote"]          # vẫn còn dấu vết OCR gốc
+def test_tu_da_co_dau_khong_bi_doi(tu_dien, monkeypatch):
+    monkeypatch.setattr(tu_dien, "_corpus_texts", lambda: ["Thường xuyên kiểm tra hạ tầng."])
+    tu_dien.reset_lexicon()
+    ok = "Công ty Thương mại tại Hà Nội"
+    assert tu_dien.restore_diacritics(ok) == ok
 
 
-def test_phrase_bank_fixes_value_that_differs_ONLY_by_diacritics():
-    """C1 — giá trị chỉ khác bản chuẩn ở CHỖ THIẾU DẤU vẫn phải được nắn.
-
-    Guard cũ so bản BỎ DẤU (`_fold(cand) != _fold(val)`) nên bản rụng dấu hoàn toàn
-    bị coi là 'đã giống rồi' và KHÔNG được sửa — đúng ngay loại hỏng phổ biến nhất
-    của OCR mà ngân hàng cụm sinh ra để chữa. Nay so NGUYÊN VĂN."""
-    from app.domain.documents.ocr import fold_diacritics
-    from app.domain.documents.spelling import canonicalize_fields, phrases_for_job
-
-    canon = phrases_for_job("nhat_ban")["an_toan_ve_sinh_lao_dong"][0]
-    broken = fold_diacritics(canon)                # bản rụng sạch dấu
-    assert broken != canon
-    c = {
-        "extracted_fields": {"an_toan_ve_sinh_lao_dong": {
-            "value": broken, "confidence": 0.5, "evidence": {}}},
-        "missing_fields": [],
-        "raw": {"normalized_text": "- " + broken},
-    }
-    out = canonicalize_fields(c, "nhat_ban")["extracted_fields"]["an_toan_ve_sinh_lao_dong"]
-    assert out["value"] == canon                    # đã nắn về đúng bản chuẩn
-    assert out["evidence"]["short_quote"] == broken  # bằng chứng giữ bản OCR gốc
+def test_reset_lexicon_dung_lai_tu_dien(tu_dien, monkeypatch):
+    """Kho quy định/bộ trường đổi -> phải dựng lại từ điển, không dùng bản cũ trong cache."""
+    assert tu_dien.restore_diacritics("chuyn khon") == "chuyển khoản"
+    monkeypatch.setattr(tu_dien, "_corpus_texts", lambda: ["Bàn giao tài liệu."])
+    assert tu_dien.restore_diacritics("chuyn khon") == "chuyển khoản"   # còn cache
+    tu_dien.reset_lexicon()
+    assert tu_dien.restore_diacritics("chuyn khon") == "chuyn khon"
 
 
-def test_split_sections_tolerates_ocr_damage():
-    """B3 — cắt vùng theo mục biểu mẫu, chịu được tiêu đề bị OCR rụng chữ."""
-    from app.domain.documents.rules import split_sections
-    from app.store import load_extraction_config
-    txt = ("3. Ni dung:\n- Đa đim làm vic: 3090 Osawa\n"
-           "11. Chi phí ngưi lao đng phi tr:\n- Tin dch v: 25.000.000 VND\n12. Tin ký qu: 0\n")
-    sec = split_sections(txt, load_extraction_config())
-    assert "Osawa" in sec["noi_dung"] and "25.000.000" not in sec["noi_dung"]
-    assert "25.000.000" in sec["chi_phi_nld"]
+def test_restore_field_spelling_giu_bang_chung_goc(tu_dien):
+    """Giá trị VĂN BẢN được sửa dấu; bằng chứng giữ nguyên văn OCR; ngày/số không bị đụng."""
+    raw = "Chuyn khon, chia lam 2 dot"
+    c = {"extracted_fields": {
+        "phuong_thuc_thanh_toan": {"value": raw, "evidence": {"short_quote": None}},
+        "ngay_ky": {"value": "2025-03-05", "evidence": {}},
+        "so_luong": {"value": 12, "evidence": {}},
+        "gia_tri_hop_dong": {"value": {"amount": 120000000, "note": "da bao gm thue"}},
+    }}
+    ef = tu_dien.restore_field_spelling(c)["extracted_fields"]
+    assert ef["phuong_thuc_thanh_toan"]["value"].startswith("Chuyển khoản")
+    assert ef["phuong_thuc_thanh_toan"]["evidence"]["short_quote"] == raw
+    assert ef["ngay_ky"]["value"] == "2025-03-05" and ef["so_luong"]["value"] == 12
+    assert ef["gia_tri_hop_dong"]["value"]["note"] == "đã bao gồm thuế"
 
 
 def test_broken_checks_config_is_loud_not_silent():
@@ -256,25 +267,48 @@ def test_broken_checks_config_is_loud_not_silent():
         cfg._load_checks.cache_clear()      # trả cache về cấu hình THẬT cho test sau
 
 
-# ---------------------------------------------------------------------------
-# GOLDEN — OCR: chuẩn hóa thời giờ làm việc từ text OCR rụng dấu
-# ---------------------------------------------------------------------------
-def test_golden_worktime_normalized_from_ocr_text():
-    from app.domain.documents.rules import normalize_worktime
-    golden = {
-        "8 gio/ngay, 40 gio/tuan": "8 giờ/ngày; 40 giờ/tuần",
-        "44 gio / tuan": "44 giờ/tuần",
-    }
-    for raw, want in golden.items():
-        assert normalize_worktime(raw) == want, raw
-
-
 def test_foreign_majority_line_dropped_and_stray_chars_stripped():
     from app.domain.documents.ocr.text import (
         _is_foreign_script_line,
         _strip_foreign_chars,
     )
-    assert _is_foreign_script_line("技能実習生 制度") is True            # thuần Nhật -> bỏ
+    assert _is_foreign_script_line("契約書 制度") is True                # thuần chữ Hán -> bỏ
     assert _is_foreign_script_line("第3条 Article") is False            # Latin đa số -> giữ
-    assert _is_foreign_script_line("Tiền lương 月給") is False
-    assert _strip_foreign_chars("200.000円/月 JPY") == "200.000 / JPY"  # xóa ký tự lẻ
+    assert _is_foreign_script_line("Giá trị hợp đồng 金額") is False
+    assert _strip_foreign_chars("200.000円/月 USD") == "200.000 / USD"  # xóa ký tự lẻ
+
+
+def test_neo_bat_dau_va_ket_thuc_cat_dung_doan(monkeypatch):
+    """Neo BẮT ĐẦU giữ vài dòng phía trên (Số/ngày nằm trong khối tiêu ngữ); neo KẾT
+    THÚC chỉ tính ở ĐẦU DÒNG — câu giữa văn bản không được cắt cụt phần sau."""
+    from app.core import settings
+    from app.domain.documents.ocr import apply_end_anchor, apply_start_anchor, end_anchor_hit
+
+    monkeypatch.setattr(settings, "ocr_start_anchor_lookback", 1)
+    monkeypatch.setattr(settings, "ocr_end_anchor", "đại diện bên a")
+    lines = ["Công ty TNHH Minh Phát", "Số: 15/2025/HĐDV", "HỢP ĐỒNG DỊCH VỤ",
+             "Điều 5. Hợp đồng chấm dứt khi đại diện bên A ký biên bản thanh lý",
+             "Điều 9. ĐẠI DIỆN BÊN A", "(ký, đóng dấu)"]
+    kept, found = apply_start_anchor(lines, "hop dong dich vu")
+    assert found and kept[0] == "Số: 15/2025/HĐDV"
+    assert apply_start_anchor(lines, "bien ban nghiem thu") == (lines, False)
+    cut, hit = apply_end_anchor(kept)
+    assert hit and cut[-1].startswith("Điều 5.")
+    assert end_anchor_hit(["ĐẠI DIỆN BÊN A"]) and not end_anchor_hit(lines[:4])
+
+
+def test_trang_trang_khong_dua_vao_mo_hinh(monkeypatch):
+    """Vintern BỊA chữ trên trang trắng -> trang trắng phải bị chặn trước khi gọi mô hình."""
+    from PIL import Image, ImageDraw
+
+    from app.domain.documents.ocr import layout
+
+    blank = Image.new("RGB", (1240, 1754), "white")
+    assert layout.is_blank(blank)
+    text = blank.copy()
+    ImageDraw.Draw(text).rectangle([200, 300, 900, 330], fill="black")   # ~ một dòng chữ
+    assert not layout.is_blank(text)
+    monkeypatch.setattr(layout.vintern, "transcribe", lambda *_a, **_k: pytest.fail("đã gọi mô hình"))
+    assert layout.ocr_image_lines(blank) == []
+    lines, meta = layout.ocr_image_lines(blank, with_meta=True)
+    assert lines == [] and meta["rotate_k"] == 0

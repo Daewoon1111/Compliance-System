@@ -63,6 +63,5 @@ export function toneOfVerdict(v: string): ToneName {
   if (v === "PASS") return "ok";
   if (v === "FAIL") return "bad";
   if (v === "NEEDS_SUPPLEMENT") return "warn";
-  if (v === "DEFERRED_FOREIGN") return "info";
   return "neutral";
 }

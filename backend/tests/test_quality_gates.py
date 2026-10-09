@@ -10,8 +10,8 @@ Năm nhóm dưới đây trả lời năm câu hỏi mà bộ test cũ không h�
   4. ĐẦU CUỐI      — cả đường kiểm tra chạy thông: gộp tài liệu -> báo cáo -> nhật ký,
      với LLM/RAG bị thay bằng bản giả (test kiểm LOGIC, không kiểm môi trường).
   5. FRONTEND      — bất biến đọc được từ chính mã nguồn, không cần trình duyệt: bộ
-     khóa i18n hai ngôn ngữ phải khớp, mã trạng thái thô không được lọt ra JSX, mọi
-     khóa nhóm chi phí phải rơi vào một khái niệm đã biết.
+     khóa i18n hai ngôn ngữ phải khớp, mã trạng thái thô không được lọt ra JSX.
+  6. CỜ CHẤT LƯỢNG ĐẦU VÀO — cổng OCR + ngày ký hạ đúng trường về NEEDS_SUPPLEMENT.
 
 Kiểm thử trình duyệt THẬT (Playwright) chưa nằm ở đây: nó cần thêm phụ thuộc và một
 lượt tải trình duyệt, thuộc bảng kiểm phát hành chứ không thuộc `npm run test`.
@@ -22,12 +22,19 @@ import json
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app import core
+from app.domain.compliance.quality import (
+    blocking_fields,
+    compute_input_flags,
+    signed_date_of,
+    trusted_derived_date,
+)
 from app.main import app
 from app.store import audit as audit_store
 from app.store import config as config_store
@@ -43,11 +50,7 @@ def isolate_store(tmp_path, monkeypatch):
     monkeypatch.setattr(core.settings, "temp_dir", str(tmp_path / "temp"))
     monkeypatch.setattr(core.settings, "admin_token", ADMIN_TOKEN)
     monkeypatch.setattr(audit_store, "AUDIT_FILE", tmp_path / "audit.jsonl")
-    ucfg = tmp_path / "user_config"
-    monkeypatch.setattr(config_store, "USER_CONFIG_DIR", ucfg)
-    monkeypatch.setattr(config_store, "APPLIED_FILE", ucfg / "applied.json")
-    for kind in list(config_store.USER_CONFIG_DIRS):
-        monkeypatch.setitem(config_store.USER_CONFIG_DIRS, kind, ucfg / kind)
+    monkeypatch.setattr(config_store, "USER_FIELD_SETS_DIR", tmp_path / "user_config" / "field_sets")
 
 
 @pytest.fixture()
@@ -104,10 +107,12 @@ def test_hop_dong_quan_tri_kho_luat(client):
     assert r.status_code == 200
     d = r.json()
     assert {"documents", "counts", "blocking", "fingerprint"} <= set(d)
-    assert d["documents"], "app/rules phải có ít nhất một văn bản luật"
-    assert {"file", "title", "doc_no", "official_source", "corpus_version",
-            "effective_from", "effective_to", "sha256", "sha256_actual",
-            "approved_by", "approved_at", "status", "status_text"} <= set(d["documents"][0])
+    # Kho quy định có thể đang RỖNG (hệ thống không kèm sẵn văn bản nào) — khi có văn
+    # bản thì mỗi dòng phải đủ cột.
+    for doc in d["documents"]:
+        assert {"file", "title", "doc_no", "official_source", "corpus_version",
+                "effective_from", "effective_to", "sha256", "sha256_actual",
+                "approved_by", "approved_at", "status", "status_text"} <= set(doc)
     assert len(d["fingerprint"]) == 16
 
 
@@ -123,25 +128,31 @@ def test_hop_dong_do_tren_ho_so_co_nhan(client):
         assert r.json()["note"]
 
 
-def test_canh_bao_quy_uoc_ten_thi_truong(client):
-    """Tên không theo `"English (Tiếng Việt)"` -> CẢNH BÁO, không phải lỗi chặn."""
-    xau = json.dumps({"id": "x", "name": "Thị trường mới", "job_id": "nhat_ban",
-                      "job_types": [{"id": "a", "name": "Nghề mới"}]}, ensure_ascii=False)
-    w = client.post("/api/v1/config/lint", json={"kind": "markets", "content": xau}).json()
-    assert w["ok"] and len(w["warnings"]) == 2, w
+def test_soi_bo_truong_dang_soan(client):
+    """Bộ trường hỏng phải báo NGAY lúc soạn, không đợi tới lượt tải hồ sơ."""
+    xau = json.dumps({"display_name": "Hợp đồng dịch vụ", "fields_catalog": {
+        "ngay_ky": {"label": "Ngày ký", "value_type": "ngay"}}}, ensure_ascii=False)
+    w = client.post("/api/v1/config/validate", json={"content": xau}).json()
+    assert not w["ok"] and not w["json_error"] and any("value_type" in p for p in w["problems"])
 
-    tot = json.dumps({"id": "x", "name": "New market (Thị trường mới)", "job_id": "nhat_ban",
-                      "job_types": [{"id": "a", "name": "New job (Nghề mới)"}]}, ensure_ascii=False)
-    assert client.post("/api/v1/config/lint", json={"kind": "markets", "content": tot}
-                       ).json()["warnings"] == []
+    tot = json.dumps({"display_name": "Hợp đồng dịch vụ", "fields_catalog": {
+        "ngay_ky": {"label": "Ngày ký", "value_type": "date"}}}, ensure_ascii=False)
+    assert client.post("/api/v1/config/validate", json={"content": tot}).json() == {
+        "ok": True, "json_error": False, "problems": []}
 
     # Đang gõ dở -> JSON hỏng là chuyện thường, không được trả 500.
-    hong = client.post("/api/v1/config/lint", json={"kind": "markets", "content": "{"})
+    hong = client.post("/api/v1/config/validate", json={"content": "{"})
     assert hong.status_code == 200 and hong.json()["json_error"] is True
 
-    # Lưu vẫn PHẢI thành công (cảnh báo không chặn), kèm cảnh báo trong phản hồi.
-    saved = client.put("/api/v1/config/item", json={"kind": "markets", "id": "x", "content": xau})
-    assert saved.status_code == 200 and saved.json()["warnings"]
+    # Lưu: bộ hỏng bị chặn TRƯỚC khi ghi; bộ hợp lệ ghi vào thư mục người dùng (tmp).
+    assert client.put("/api/v1/config/field-set",
+                      json={"id": "hop_dong_dv", "content": xau}).status_code == 400
+    saved = client.put("/api/v1/config/field-set", json={"id": "hop_dong_dv", "content": tot})
+    assert saved.status_code == 200 and saved.json()["id"] == "hop_dong_dv"
+    assert (config_store.USER_FIELD_SETS_DIR / "hop_dong_dv.json").is_file()
+    # Không được dùng mã của bộ mặc định — bộ mặc định chỉ sửa qua trang Quản trị.
+    assert client.put("/api/v1/config/field-set",
+                      json={"id": "hop_dong_mau", "content": tot}).status_code == 400
 
 
 # ===========================================================================
@@ -157,7 +168,7 @@ def test_endpoint_quan_tri_moi_van_doi_ma(client, path):
 def test_phe_duyet_phai_khai_ten_nguoi_duyet(client):
     """Phê duyệt vô danh thì cột 'người phê duyệt' chỉ là trang trí."""
     r = client.post("/api/v1/admin/corpus/approve",
-                    json={"file": "Luat_so_69-2020.md", "approved_by": "  "}, headers=AUTH)
+                    json={"file": "Nghi_dinh_mau.md", "approved_by": "  "}, headers=AUTH)
     assert r.status_code == 400
 
 
@@ -199,7 +210,7 @@ def test_nhieu_luot_doc_dong_thoi_khong_hong_nhau(client, tmp_path):
                             "documents": []}, ensure_ascii=False) + "\n" for i in range(50)),
         encoding="utf-8")
 
-    paths = ["/api/v1/stats", "/api/v1/audit?limit=10", "/api/v1/reminders", "/health"]
+    paths = ["/api/v1/stats", "/api/v1/audit?limit=10", "/api/v1/field-sets", "/health"]
 
     def _hit(i: int) -> tuple[int, str]:
         r = client.get(paths[i % len(paths)])
@@ -229,13 +240,17 @@ def test_dau_cuoi_tu_ho_so_den_nhat_ky(client, tmp_path, monkeypatch):
     base = tmp_path / "temp" / sid
     base.mkdir(parents=True)
     (base / "documents.json").write_text(json.dumps({"documents": [{
-        "doc_id": "doc1", "source_file": "1. Van ban dang ky hop dong.pdf", "size_bytes": 1000,
-        "ocr": {"stats": {"num_pages": 3, "ocr_seconds": 12.5}, "full_text": "van ban dang ky"},
+        "doc_id": "doc1", "source_file": "hop dong dich vu.pdf", "size_bytes": 1000,
+        "ocr": {"stats": {"num_pages": 3, "ocr_seconds": 12.5}, "full_text": "HỢP ĐỒNG DỊCH VỤ"},
         "contract": {
-            "contract_meta": {"session_id": sid, "job_id": "nhat_ban", "market_id": "nhat_ban",
-                              "country_id": "nhat_ban", "job_type_id": "tts",
-                              "market_name": "Japan (Nhật Bản)", "job_type_name": "TTS"},
-            "extracted_fields": {"tien_luong": {"label": "Tiền lương", "value": "184461 JPY"}},
+            "contract_meta": {"session_id": sid, "field_set_id": "hop_dong_mau",
+                              "field_set_name": "Hợp đồng (mẫu chung)",
+                              "signed_date_field": "ngay_ky"},
+            "extracted_fields": {
+                "ngay_ky": {"label": "Ngày ký", "value": "2025-03-05"},
+                "gia_tri_hop_dong": {"label": "Giá trị hợp đồng", "value": {
+                    "amount": 120000000, "currency": "VND", "raw": "120.000.000 VND"}},
+            },
             "input_flags": [],
         },
     }]}, ensure_ascii=False), encoding="utf-8")
@@ -243,19 +258,19 @@ def test_dau_cuoi_tu_ho_so_den_nhat_ky(client, tmp_path, monkeypatch):
     async def _fake_validate(contract, job_prompt, fields, signed_date, on_progress=None):
         return {
             "overall_verdict": "PASS",
-            "checks": [{"check_id": "tien_luong", "verdict": "PASS", "reason": "ok",
-                        "citations": [{"chunk_id": "c1", "source_doc": "Luật số 69/2020/QH14"}]}],
+            "checks": [{"check_id": "gia_tri_hop_dong", "verdict": "PASS", "reason": "ok",
+                        "citations": [{"chunk_id": "c1", "source_doc": "Bộ luật Dân sự 2015"}]}],
             "fee_anomalies": [],
             "_metrics": {"retrieval": {"fields": 1, "chunks": 1, "coverage_at_k": 1.0,
                                        "full_coverage_at_k": 1.0, "uncovered_fields": [],
-                                       "detail": {"tien_luong": ["c1"]}},
+                                       "detail": {"gia_tri_hop_dong": ["c1"]}},
                          "citation": {"citations": 1, "precision": 1.0, "hallucinated": 0,
                                       "decided_checks": 1, "grounded_ratio": 1.0}},
         }
 
     monkeypatch.setattr(report_mod, "validate_contract", _fake_validate)
 
-    r = client.post(f"/api/v1/sessions/{sid}/validate", json={"selected_fields": ["tien_luong"]})
+    r = client.post(f"/api/v1/sessions/{sid}/validate", json={"selected_fields": ["gia_tri_hop_dong"]})
     assert r.status_code == 200, r.text
     rep = r.json()
     assert rep["overall_verdict"] == "PASS"
@@ -267,7 +282,7 @@ def test_dau_cuoi_tu_ho_so_den_nhat_ky(client, tmp_path, monkeypatch):
 
     # Lượt hai cùng chữ ký -> trả lại bản đã lưu, KHÔNG chạy lại.
     assert client.post(f"/api/v1/sessions/{sid}/validate",
-                       json={"selected_fields": ["tien_luong"]}).json()["checked_at"] == rep["checked_at"]
+                       json={"selected_fields": ["gia_tri_hop_dong"]}).json()["checked_at"] == rep["checked_at"]
 
     # Nhật ký giữ đủ thứ trang chỉ số cần: số trang, giây OCR, vân tay, số đo.
     ghi = [json.loads(x) for x in audit_store.AUDIT_FILE.read_text(encoding="utf-8").splitlines()]
@@ -314,20 +329,91 @@ def test_ma_trang_thai_tho_khong_lot_ra_giao_dien():
     assert not xau, f"mã trạng thái thô lọt ra JSX: {xau}"
 
 
-def test_moi_khoa_chi_phi_roi_vao_mot_khai_niem_da_biet():
-    """`costConcept` trả 'khac' cho khóa lạ — hai khoản khác nhau cùng rơi vào 'khac'
-    sẽ bị ghép cặp với nhau và bảng chi phí so sai hai bên."""
-    from app.store import load_job_prompt
+# ===========================================================================
+# 6) CỜ CHẤT LƯỢNG ĐẦU VÀO — cổng OCR + ngày ký
+# ===========================================================================
+_HOM_NAY = date(2025, 6, 1)
+_OCR_TOT = {"avg_confidence": 0.95, "num_lines": 40, "low_conf_lines": 0}
+_TEXT_DU = "HỢP ĐỒNG DỊCH VỤ. " * 20
 
-    src = (FRONTEND_SRC / "costPairs.ts").read_text(encoding="utf-8")
-    mau = re.findall(r"if \(/([^/]+)/\.test\(k\)\) return \"([a-z_]+)\";", src)
-    assert mau, "không đọc được bảng khái niệm trong costPairs.ts"
 
-    la: list[str] = []
-    fc = load_job_prompt("nhat_ban")["fields_catalog"]
-    for k, v in fc.items():
-        if (v or {}).get("field_group") != "payer":
-            continue
-        if not any(re.search(pat, k) for pat, _ in mau):
-            la.append(k)
-    assert not la, f"khóa nhóm chi phí không khớp khái niệm nào: {la}"
+def _hd(ngay_ky=None, *, sd_field="ngay_ky", derived=None) -> dict:
+    """Hồ sơ tối thiểu theo bộ trường `hop_dong_mau`."""
+    return {
+        "contract_meta": {"field_set_id": "hop_dong_mau", "signed_date_field": sd_field},
+        "extracted_fields": {"ngay_ky": {"value": ngay_ky}},
+        "derived": {"signed_date": derived or {"value": None}},
+    }
+
+
+def _codes(contract, ocr=None, text=_TEXT_DU) -> list[str]:
+    return [f["code"] for f in compute_input_flags(contract, ocr or _OCR_TOT, text, _HOM_NAY)]
+
+
+def test_ho_so_sach_khong_co_co_nao():
+    assert _codes(_hd("2025-03-05")) == []
+
+
+@pytest.mark.parametrize("ocr,text,ma", [
+    ({"avg_confidence": 0.9, "num_lines": 3}, "Số: 15", "OCR_EMPTY"),
+    ({"avg_confidence": 0.40, "num_lines": 40}, _TEXT_DU, "OCR_BLURRY"),
+    ({"avg_confidence": 0.70, "num_lines": 40}, _TEXT_DU, "OCR_LOW_CONF"),
+    ({"avg_confidence": 0.90, "num_lines": 40, "low_conf_lines": 20}, _TEXT_DU,
+     "OCR_MANY_LOW_LINES"),
+    ({**_OCR_TOT, "text_layer_check": {"accepted": False, "page": 1, "agreement": 0.2}},
+     _TEXT_DU, "TEXT_LAYER_MISMATCH"),
+])
+def test_cong_ocr(ocr, text, ma):
+    assert _codes(_hd("2025-03-05"), ocr, text) == [ma]
+
+
+@pytest.mark.parametrize("ngay,ma", [
+    (None, "SIGNED_DATE_MISSING"),
+    ("05/03/2025", "SIGNED_DATE_INVALID"),       # trường ngày phải là ISO sau trích xuất
+    ("2030-01-01", "SIGNED_DATE_FUTURE"),
+    ("1985-01-01", "SIGNED_DATE_TOO_OLD"),
+])
+def test_co_ngay_ky(ngay, ma):
+    flags = compute_input_flags(_hd(ngay), _OCR_TOT, _TEXT_DU, _HOM_NAY)
+    assert [f["code"] for f in flags] == [ma]
+    assert flags[0]["field"] == "ngay_ky" and flags[0]["needs_signed_date"]
+
+
+def test_bo_truong_khong_khai_ngay_ky_thi_khong_hoi_ngay_ky():
+    """Loại hồ sơ không dùng ngày ký -> không được nhắc nhập ngày ký."""
+    assert _codes(_hd(None, sd_field="")) == []
+    assert signed_date_of(_hd("2025-03-05", sd_field="")) == ""
+
+
+def test_ngay_suy_ra_do_tin_thap_khong_lam_moc_loc():
+    """Ngày đầu tiên trong văn bản (conf 0.25) thường là ngày của văn bản dẫn chiếu."""
+    thap = _hd(None, derived={"value": "2020-01-01", "confidence": 0.25, "from_field": None})
+    assert trusted_derived_date(thap) == "" and signed_date_of(thap) == ""
+    assert _codes(thap) == ["SIGNED_DATE_MISSING"]
+    tu_truong = _hd(None, derived={"value": "2025-03-05", "confidence": 0.6,
+                                   "from_field": "ngay_ky"})
+    assert signed_date_of(tu_truong) == "2025-03-05"
+    # Trường ngày ký (người duyệt sửa được) luôn thắng ngày suy ra.
+    assert signed_date_of({**tu_truong, "extracted_fields": {
+        "ngay_ky": {"value": "2025-04-01"}}}) == "2025-04-01"
+
+
+def test_mot_lop_co_no_khong_chan_lop_con_lai(monkeypatch):
+    """Cấu hình sai kiểu ở lớp OCR không được làm lớp ngày ký im lặng."""
+    from app.domain.compliance import quality
+
+    monkeypatch.setattr(quality, "load_input_quality_config", lambda: {
+        "ocr_gate": {"min_lines": "khong-phai-so"}, "signed_date": {"earliest": "1990-01-01"}})
+    assert _codes(_hd(None)) == ["SIGNED_DATE_MISSING"]
+
+
+def test_blocking_fields_chi_lay_co_chan_truong():
+    flags = [
+        {"code": "OCR_LOW_CONF", "field": None, "block_field": False},
+        {"code": "A", "field": "gia_tri_hop_dong", "block_field": True},
+        {"code": "B", "field": "gia_tri_hop_dong", "block_field": True},
+        {"code": "C", "field": "thoi_han", "block_field": False},
+    ]
+    out = blocking_fields(flags)
+    assert set(out) == {"gia_tri_hop_dong"} and out["gia_tri_hop_dong"]["code"] == "A"
+    assert blocking_fields([]) == {} and blocking_fields(None) == {}

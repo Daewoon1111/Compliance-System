@@ -1,343 +1,528 @@
 @import "tailwindcss";
+@import "./assets/fonts/fonts.css";
 
 /* ===========================================================================
-   BỘ QUY TẮC MÀU — bảng giá trị cho từng VAI TRÒ, chia theo giao diện sáng/tối.
+   BỘ QUY TẮC MÀU — nơi DUY NHẤT chứa mã màu của hệ thống.
 
-   Đây là nơi DUY NHẤT chứa mã màu của hệ thống. `src/colors.ts` chỉ ghép các
-   biến này thành lớp Tailwind (`bg-[var(--c-surface)]`) để dùng trong JSX; JSX
-   không viết mã màu, và không phải nhớ sắc độ nào đi với sắc độ nào.
+   Giao diện viết bằng lớp Tailwind quen thuộc (`text-slate-500`, `bg-blue-600`,
+   `border-red-200`…). Thay vì ánh xạ lại từng lớp cho chế độ tối như trước (bảng
+   `.dark .bg-white {…}` dài và luôn sót các biến thể `hover:`), bảng màu của
+   Tailwind được TRỎ VÀO BIẾN CSS ngay trong khối `@theme inline` dưới đây. Mỗi
+   biến có hai giá trị: `:root` = giao diện SÁNG, `.dark` = giao diện TỐI. Nhờ vậy
+   MỌI lớp — kể cả `hover:bg-slate-100`, `bg-blue-50/50`, `focus:ring-blue-500/30` —
+   tự đổi theo chế độ mà JSX không phải viết `dark:` lần nào.
 
-   Đổi bảng màu = sửa đúng khối này. Thêm một vai trò = thêm một biến ở CẢ HAI
-   khối `:root` và `.dark` — thiếu một bên là màu rơi về giá trị của bên kia.
+   Quy ước vai trò của thang SLATE (giữ nguyên ở cả hai chế độ):
+     50 nền phụ · 100 nền nổi · 200 viền · 300 viền đậm
+     400 chữ mờ · 500 chữ phụ · 600–700 chữ thường · 800 chữ chính · 900 chữ đậm nhất
+   Nền THẺ dùng lớp `bg-surface` (không dùng `bg-white`: `text-white` trên nút xanh
+   phải luôn là trắng thật, còn nền thẻ ở chế độ tối là xanh đen).
+
+   Đổi bảng màu = sửa hai khối `:root` / `.dark`. Thêm một sắc độ = thêm ở CẢ HAI
+   khối và một dòng trong `@theme inline`.
    =========================================================================== */
-:root {
-  /* nền · viền · chữ */
-  --c-surface: #ffffff;
-  --c-surface-subtle: #f8fafc;   /* slate-50  */
-  --c-border: #e2e8f0;           /* slate-200 */
-  --c-border-soft: #f1f5f9;      /* slate-100 */
-  --c-ink: #1e293b;              /* slate-800 */
-  --c-ink-muted: #64748b;        /* slate-500 */
-  --c-ink-faint: #94a3b8;        /* slate-400 */
+@theme inline {
+  --font-sans: "Manrope", "Segoe UI Variable Text", "Segoe UI", system-ui, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
 
-  /* màu nhấn + màu di chuột (nút, liên kết, mục đang mở) */
-  --c-accent: #2563eb;           /* XANH */
-  --c-accent-ink: #ffffff;
-  --c-hover-bg: #2563eb;
-  --c-hover-ink: #ffffff;
-  /* nút CHÍNH khi di chuột: nền bạc, chữ đen */
-  --c-accent-hover-bg: #c0c0c0;
-  --c-accent-hover-ink: #000000;
+  --color-surface: var(--c-surface);
+  --color-canvas: var(--c-bg);
 
-  /* DÒNG BẢNG đang rê chuột (`row-hl`). Đậm hơn hẳn nền dòng chẵn (slate-50/40) để
-     thấy rõ đang trỏ vào dòng nào, nhưng vẫn nhạt hơn chữ nên không nuốt nội dung. */
-  --c-row-hover: #e2e8f0;
+  --color-slate-50: var(--p-slate-50);
+  --color-slate-100: var(--p-slate-100);
+  --color-slate-200: var(--p-slate-200);
+  --color-slate-300: var(--p-slate-300);
+  --color-slate-400: var(--p-slate-400);
+  --color-slate-500: var(--p-slate-500);
+  --color-slate-600: var(--p-slate-600);
+  --color-slate-700: var(--p-slate-700);
+  --color-slate-800: var(--p-slate-800);
+  --color-slate-900: var(--p-slate-900);
 
-  /* DẢI TIÊU ĐỀ NHÓM TRƯỜNG (trang 2 + trang 3) — MỘT màu XANH cho cả ba nhóm.
-     Trước đây mỗi nhóm một màu (xanh dương / xanh lá / hổ phách); ba màu bão hòa
-     cạnh nhau tranh nhau sự chú ý mà không nói thêm được gì (tên nhóm đã đủ định
-     danh). Đổi màu dải = sửa đúng biến này, áp cho cả hai trang. */
-  --c-group-bar: var(--c-accent);
+  --color-blue-50: var(--p-blue-50);
+  --color-blue-100: var(--p-blue-100);
+  --color-blue-200: var(--p-blue-200);
+  --color-blue-300: var(--p-blue-300);
+  --color-blue-400: var(--p-blue-400);
+  --color-blue-500: var(--p-blue-500);
+  --color-blue-600: var(--p-blue-600);
+  --color-blue-700: var(--p-blue-700);
+  --color-blue-800: var(--p-blue-800);
 
-  /* Trạng thái kết luận (nền + chữ). KHÔNG có biến viền: `TONE_BORDER` trong
-     colors.ts đã bị gỡ vì không nơi nào dùng, nên 4 biến `--c-*-border` đi kèm cũng
-     là màu chết — giữ lại chỉ khiến người đọc tưởng có kiểu badge viền đang chạy. */
-  --c-ok-bg: #dcfce7;   --c-ok-ink: #166534;
-  --c-bad-bg: #fee2e2;  --c-bad-ink: #991b1b;
-  --c-warn-bg: #ffedd5; --c-warn-ink: #9a3412;
-  --c-info-bg: #e0e7ff; --c-info-ink: #3730a3;
+  --color-green-50: var(--p-green-50);
+  --color-green-100: var(--p-green-100);
+  --color-green-200: var(--p-green-200);
+  --color-green-300: var(--p-green-300);
+  --color-green-400: var(--p-green-400);
+  --color-green-500: var(--p-green-500);
+  --color-green-600: var(--p-green-600);
+  --color-green-700: var(--p-green-700);
+  --color-green-800: var(--p-green-800);
+  --color-green-900: var(--p-green-900);
+  --color-emerald-700: var(--p-green-700);
+
+  --color-red-50: var(--p-red-50);
+  --color-red-100: var(--p-red-100);
+  --color-red-200: var(--p-red-200);
+  --color-red-300: var(--p-red-300);
+  --color-red-400: var(--p-red-400);
+  --color-red-500: var(--p-red-500);
+  --color-red-600: var(--p-red-600);
+  --color-red-700: var(--p-red-700);
+  --color-red-800: var(--p-red-800);
+  --color-red-900: var(--p-red-900);
+
+  --color-amber-50: var(--p-amber-50);
+  --color-amber-100: var(--p-amber-100);
+  --color-amber-200: var(--p-amber-200);
+  --color-amber-300: var(--p-amber-300);
+  --color-amber-500: var(--p-amber-500);
+  --color-amber-600: var(--p-amber-600);
+  --color-amber-700: var(--p-amber-700);
+  --color-amber-800: var(--p-amber-800);
+  --color-amber-900: var(--p-amber-900);
+
+  --color-orange-50: var(--p-orange-50);
+  --color-orange-100: var(--p-orange-100);
+  --color-orange-300: var(--p-orange-300);
+  --color-orange-400: var(--p-orange-400);
+  --color-orange-600: var(--p-orange-600);
+  --color-orange-800: var(--p-orange-800);
+  --color-orange-900: var(--p-orange-900);
+
+  --color-yellow-100: var(--p-yellow-100);
+  --color-yellow-200: var(--p-yellow-200);
+  --color-yellow-400: var(--p-yellow-400);
+  --color-yellow-800: var(--p-yellow-800);
+
+  --color-indigo-100: var(--p-indigo-100);
+  --color-indigo-700: var(--p-indigo-700);
 }
 
-.dark {
-  --c-surface: #131c2e;
-  --c-surface-subtle: #162034;
-  --c-border: #27344f;
-  --c-border-soft: #1f2b44;
-  /* CHỮ sáng hơn một nấc so với bản trước (#e2e8f0 / #96a4bd / #7f8ea9): trên nền
-     xanh đen, chữ phụ và chữ mờ trước đây tụt xuống dưới ngưỡng đọc thoải mái —
-     nhất là ở cỡ 12–13px vốn dùng dày đặc trong bảng trường. */
-  --c-ink: #f1f5f9;
-  --c-ink-muted: #b8c4d8;
-  --c-ink-faint: #93a3bd;
+/* ── GIAO DIỆN SÁNG ─────────────────────────────────────────────────────── */
+:root {
+  --c-bg: #eef2f8;
+  --c-surface: #ffffff;
+  --c-glow-a: rgba(40, 126, 123, 0.08);
+  --c-glow-b: rgba(47, 111, 228, 0.07);
+  --c-shadow: 0 1px 2px rgba(15, 27, 45, 0.05), 0 8px 24px rgba(15, 27, 45, 0.06);
+  --c-shadow-lg: 0 24px 64px rgba(15, 27, 45, 0.18);
+  --c-primary-soft: rgba(47, 111, 228, 0.1);
+  --c-primary-glow: rgba(47, 111, 228, 0.22);
 
-  /* MÀU NHẤN: DÙNG CHUNG bảng màu của giao diện SÁNG.
-     Bản trước đổi hẳn sang ĐỎ ở chế độ tối với lý do "xanh bị chìm". Thực tế đỏ là
-     màu của LỖI trong chính hệ này (FAIL, ô trống, cảnh báo) — dùng nó làm màu nút
-     và màu di chuột khiến thao tác bình thường trông như cảnh báo, và người dùng
-     chuyển chế độ sáng/tối phải học lại nghĩa của màu. Một màu nhấn duy nhất cho cả
-     hai chế độ thì màu mới nói được đúng một điều. */
-  --c-accent: #2563eb;
+  --p-slate-50: #f6f8fc;
+  --p-slate-100: #edf1f7;
+  --p-slate-200: #dde4ee;
+  --p-slate-300: #c6d0de;
+  --p-slate-400: #8e9bb0;
+  --p-slate-500: #5d6b82;
+  --p-slate-600: #48566c;
+  --p-slate-700: #334056;
+  --p-slate-800: #142033;
+  --p-slate-900: #0a1424;
+
+  --p-blue-50: #eef4ff;
+  --p-blue-100: #dde8ff;
+  --p-blue-200: #bfd3fb;
+  --p-blue-300: #93b4f5;
+  --p-blue-400: #5f8fec;
+  --p-blue-500: #3b78ea;
+  --p-blue-600: #2f6fe4;
+  --p-blue-700: #2459c2;
+  --p-blue-800: #1c4796;
+
+  --p-green-50: #ecfbf4;  --p-green-100: #d3f5e5; --p-green-200: #a9e9cc;
+  --p-green-300: #74d6ac; --p-green-400: #40c99b; --p-green-500: #22b07f;
+  --p-green-600: #138a62; --p-green-700: #0f7553; --p-green-800: #0d5c42; --p-green-900: #0b4a36;
+
+  --p-red-50: #fef1f2;    --p-red-100: #fde0e3;   --p-red-200: #f9c3c9;
+  --p-red-300: #f39aa4;   --p-red-400: #ea6b79;   --p-red-500: #e04556;
+  --p-red-600: #c8303f;   --p-red-700: #a92434;   --p-red-800: #8b1f2d;  --p-red-900: #721c28;
+
+  --p-amber-50: #fff8eb;  --p-amber-100: #feecc7; --p-amber-200: #fdd98a;
+  --p-amber-300: #fbc04d; --p-amber-500: #f0a020; --p-amber-600: #d07d0b; --p-amber-700: #ac5c0c;
+  --p-amber-800: #8c4810; --p-amber-900: #733c11;
+
+  --p-orange-50: #fff4ec; --p-orange-100: #ffe4d0; --p-orange-300: #fdb37f;
+  --p-orange-400: #fb8c47; --p-orange-600: #e05a12; --p-orange-800: #9c3d12; --p-orange-900: #7e3412;
+
+  --p-yellow-100: #fef7c3; --p-yellow-200: #fdeb8a; --p-yellow-400: #f5cb2a; --p-yellow-800: #84530f;
+  --p-indigo-100: #e3e7ff; --p-indigo-700: #3d3fc4;
+
+  /* Vai trò cũ dùng trong colors.ts (C, TONE) — giữ tên, trỏ theo bảng mới. */
+  --c-surface-subtle: var(--p-slate-50);
+  --c-border: var(--p-slate-200);
+  --c-border-soft: var(--p-slate-100);
+  --c-ink: var(--p-slate-800);
+  --c-ink-muted: var(--p-slate-500);
+  --c-ink-faint: var(--p-slate-400);
+  --c-accent: var(--p-blue-600);
   --c-accent-ink: #ffffff;
-  --c-hover-bg: #2563eb;
+  --c-hover-bg: var(--p-blue-600);
   --c-hover-ink: #ffffff;
-  --c-accent-hover-bg: #c0c0c0;
-  --c-accent-hover-ink: #000000;
-  /* Dòng đang rê chuột ở nền TỐI: sáng hơn nền thẻ đúng một nấc. Trước đây lớp
-     `hover:bg-slate-50` của Tailwind lọt qua bộ đảo màu và tô TRẮNG nguyên dòng. */
-  --c-row-hover: #1e2b45;
-  /* Sáng hơn accent một nấc cho đủ tương phản trên nền xanh đen (khớp `.bg-blue-600`). */
-  --c-group-bar: #2f6fe4;
+  --c-row-hover: var(--p-slate-100);
+  --c-group-bar: var(--p-blue-600);
+  --c-ok-bg: var(--p-green-100);   --c-ok-ink: var(--p-green-800);
+  --c-bad-bg: var(--p-red-100);    --c-bad-ink: var(--p-red-800);
+  --c-warn-bg: var(--p-amber-100); --c-warn-ink: var(--p-amber-800);
+  --c-info-bg: var(--p-indigo-100); --c-info-ink: var(--p-indigo-700);
+}
 
-  --c-ok-bg: #1c452a;   --c-ok-ink: #a2ecc2;
-  --c-bad-bg: #4a2229;  --c-bad-ink: #ffc6c6;
-  --c-warn-bg: #4b301a; --c-warn-ink: #ffc79a;
-  --c-info-bg: #1d1f42; --c-info-ink: #a3a9ff;
+/* ── GIAO DIỆN TỐI (mặc định) — xanh đêm của mẫu thiết kế ───────────────── */
+.dark {
+  --c-bg: #08111f;
+  --c-surface: #0e192b;
+  --c-glow-a: rgba(40, 126, 123, 0.14);
+  --c-glow-b: rgba(36, 87, 168, 0.12);
+  --c-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 20px 60px rgba(0, 0, 0, 0.26);
+  --c-shadow-lg: 0 30px 80px rgba(0, 0, 0, 0.5);
+  --c-primary-soft: rgba(79, 140, 255, 0.13);
+  --c-primary-glow: rgba(79, 140, 255, 0.28);
+
+  --p-slate-50: #131f33;
+  --p-slate-100: #18263d;
+  --p-slate-200: #253650;
+  --p-slate-300: #334a6d;
+  --p-slate-400: #7385a2;
+  --p-slate-500: #94a5be;
+  --p-slate-600: #aebcd0;
+  --p-slate-700: #cad5e4;
+  --p-slate-800: #edf3ff;
+  --p-slate-900: #ffffff;
+
+  --p-blue-50: #12223d;
+  --p-blue-100: #172c4f;
+  --p-blue-200: #213d68;
+  --p-blue-300: #2d5291;
+  --p-blue-400: #3f6fc4;
+  --p-blue-500: #4f8cff;
+  --p-blue-600: #4f8cff;
+  --p-blue-700: #7aa8ff;
+  --p-blue-800: #a3c2ff;
+
+  --p-green-50: #0f2a26;  --p-green-100: #143a31; --p-green-200: #1f5444;
+  --p-green-300: #2a7059; --p-green-400: #36a581; --p-green-500: #40c99b;
+  --p-green-600: #40c99b; --p-green-700: #6fdcb7; --p-green-800: #9ae9cd; --p-green-900: #c4f4e2;
+
+  --p-red-50: #2d1520;    --p-red-100: #3d1a26;   --p-red-200: #5e2a37;
+  --p-red-300: #7c3443;   --p-red-400: #a9475a;   --p-red-500: #f25e6b;
+  --p-red-600: #f47782;   --p-red-700: #ff9aa3;   --p-red-800: #ffbdc3;  --p-red-900: #ffd9dc;
+
+  --p-amber-50: #2b2213;  --p-amber-100: #3a2c15; --p-amber-200: #57431d;
+  --p-amber-300: #7a5d26; --p-amber-500: #f2b155; --p-amber-600: #f2b155; --p-amber-700: #f7c97f;
+  --p-amber-800: #fad9a3; --p-amber-900: #fde8c6;
+
+  --p-orange-50: #2e1d14; --p-orange-100: #3e2517; --p-orange-300: #7f4a28;
+  --p-orange-400: #c06a33; --p-orange-600: #ff9a5c; --p-orange-800: #ffc29b; --p-orange-900: #ffd8bd;
+
+  --p-yellow-100: #3a3216; --p-yellow-200: #574a19; --p-yellow-400: #d8b43a; --p-yellow-800: #f6e195;
+  --p-indigo-100: #1d2147; --p-indigo-700: #a9afff;
+
+  --c-row-hover: #1a2a44;
+  --c-group-bar: #1d3a70;
+  --c-ok-bg: #143a31;   --c-ok-ink: #9ae9cd;
+  --c-bad-bg: #3d1a26;  --c-bad-ink: #ffbdc3;
+  --c-warn-bg: #3a2c15; --c-warn-ink: #fad9a3;
+  --c-info-bg: #1d2147; --c-info-ink: #a9afff;
 }
 
 @layer base {
+  html { background: var(--c-bg); }
   body {
     margin: 0;
-    color: #1e293b; /* slate-800 */
-    /* ROBOTO trước tiên: chữ Việt đủ dấu, nét đều ở cỡ nhỏ (bảng trường dùng dày
-       đặc 12–14px). Tải qua <link> ở index.html; không tải được thì rơi xuống
-       Inter -> font hệ thống, giao diện vẫn nguyên vẹn. */
-    font-family: "Roboto", "Inter", system-ui, "Segoe UI", Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    /* NỀN TRANG — dải màu "sóng sánh": gradient nhiều điểm dừng, phóng to gấp 3
-       khung nhìn rồi cho trôi chậm. Mắt thấy nền dịu chuyển động nhẹ chứ không
-       nhấp nháy. `background-attachment: fixed` để nền không trượt theo cuộn. */
-    background: linear-gradient(125deg, #f5fffa 0%, #fffafa 28%, #f5fffa 52%, #fffafa 76%, #f5fffa 100%);
-    background-size: 300% 300%;
-    background-attachment: fixed;
-    animation: page-wave 24s ease-in-out infinite;
     min-height: 100vh;
+    color: var(--p-slate-800);
+    font-family: var(--font-sans);
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    /* Hai quầng sáng rất nhạt (xanh ngọc góc trên trái, xanh dương bên phải) — lấy từ
+       mẫu thiết kế. Cố định theo khung nhìn, không trôi theo cuộn, không chuyển động. */
+    background:
+      radial-gradient(circle at 6% 4%, var(--c-glow-a), transparent 26rem),
+      radial-gradient(circle at 96% 32%, var(--c-glow-b), transparent 32rem),
+      var(--c-bg);
+    background-attachment: fixed;
   }
-  h2 { font-size: 24px; font-weight: 700; margin: 0 0 4px; }
-  h3 { font-size: 18px; font-weight: 600; margin: 20px 0 8px; }
+  h2 { font-size: 24px; font-weight: 750; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h3 { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; margin: 20px 0 8px; }
+  ::selection { background: var(--c-primary-glow); }
+  :focus-visible { outline: 2px solid var(--p-blue-500); outline-offset: 2px; }
+  /* Thanh cuộn mảnh, cùng tông nền — cửa sổ phần mềm không dùng thanh xám của trình duyệt. */
+  * { scrollbar-width: thin; scrollbar-color: var(--p-slate-300) transparent; }
 }
 
-/* Ô XEM TRƯỚC văn bản OCR (trang 2): trồi lên nhẹ + mờ dần vào. Ngắn (140ms) và
-   chỉ đi MỘT chiều — ô này hiện/ẩn liên tục theo con trỏ, hiệu ứng dài hơn sẽ
-   thành nhấp nháy. */
+/* Ô XEM TRƯỚC văn bản OCR (trang 2): trồi lên nhẹ + mờ dần vào. */
 @keyframes peek-in {
   from { opacity: 0; transform: translateY(4px) scale(0.98); }
   to   { opacity: 1; transform: none; }
 }
-
-@keyframes page-wave {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
 }
+.rise-in { animation: rise-in 260ms cubic-bezier(.2, .7, .2, 1) both; }
 
-/* Tôn trọng người dùng đã tắt hiệu ứng chuyển động trong hệ điều hành. */
 @media (prefers-reduced-motion: reduce) {
-  body { animation: none; }
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
 
 /* ===========================================================================
-   CỠ CHỮ CHUNG — phóng to một nấc cho dễ đọc.
-
-   Giao diện dùng nhiều cỡ chữ tùy ý (`text-[13px]`…) rải khắp các trang; chỉnh
-   từng chỗ vừa sót vừa khó giữ nhất quán. Ánh xạ lại tại đây là một chỗ duy nhất
-   quyết định thang cỡ chữ của cả hệ thống.
+   CỠ CHỮ CHUNG — phóng to một nấc cho dễ đọc (một chỗ duy nhất quyết định thang chữ).
    =========================================================================== */
 .text-xs { font-size: 13px; line-height: 1.45; }
-.text-sm { font-size: 15px; line-height: 1.5; }
-.text-base { font-size: 17px; line-height: 1.55; }
-.text-lg { font-size: 19px; line-height: 1.5; }
-.\[font-size\:11px\], .text-\[11px\] { font-size: 12.5px; }
-.text-\[12px\] { font-size: 13.5px; }
-.text-\[13px\] { font-size: 14.5px; }
-.text-\[13\.5px\] { font-size: 15px; }
-.text-\[14px\] { font-size: 15.5px; }
-.text-\[14\.5px\] { font-size: 16px; }
-.text-\[15px\] { font-size: 16.5px; }
-.text-\[16px\] { font-size: 17.5px; }
+.text-sm { font-size: 14.5px; line-height: 1.5; }
+.text-base { font-size: 16px; line-height: 1.55; }
+.text-lg { font-size: 18px; line-height: 1.5; }
+.\[font-size\:11px\], .text-\[11px\] { font-size: 12px; }
+.text-\[12px\] { font-size: 13px; }
+.text-\[13px\] { font-size: 14px; }
+.text-\[13\.5px\] { font-size: 14.5px; }
+.text-\[14px\] { font-size: 15px; }
+.text-\[14\.5px\] { font-size: 15.5px; }
+.text-\[15px\] { font-size: 16px; }
+.text-\[16px\] { font-size: 17px; }
 
 /* ===========================================================================
-   CHẾ ĐỘ TỐI — bật bằng class `dark` trên <html> (xem src/theme.ts).
-
-   Cách làm: ÁNH XẠ LẠI đúng những lớp Tailwind mà giao diện đang dùng, khai một
-   lần tại đây. Lý do chọn cách này thay vì thêm biến thể `dark:` vào từng dòng
-   JSX: giao diện có ~3.000 dòng TSX dùng đi dùng lại vài chục lớp màu — nhân đôi
-   chúng vừa phình mã vừa chắc chắn sót chỗ, và mỗi trang mới lại phải nhớ làm
-   lại. Bảng dưới đây là NGUỒN SỰ THẬT DUY NHẤT của bảng màu tối.
-
-   Nguyên tắc chuyển màu:
-     · nền   : trắng / slate-50..200  ->  xám xanh đậm dần
-     · chữ   : slate-800..300         ->  đảo chiều, sáng dần
-     · viền  : slate-100..300         ->  xám đậm vừa đủ thấy
-     · nền trạng thái (red-50, green-50…) -> cùng sắc nhưng tối và bớt bão hòa,
-       chữ trên nền đó chuyển tông sáng để giữ độ tương phản đọc được.
+   NHÃN NHỎ IN HOA (eyebrow) — "BƯỚC 01", "TÙY CHỌN NHẬN DẠNG". Chỉ dùng cho nhãn có
+   nghĩa thứ tự/nhóm thật, không trang trí.
    =========================================================================== */
-.dark body {
-  color: #f1f5f9;
-  /* Nền tối cũng "sóng sánh": xanh đá tối (#2F4F4F) trôi trên nền đen. */
-  background: linear-gradient(125deg, #2f4f4f 0%, #000000 30%, #24403f 55%, #000000 80%, #2f4f4f 100%);
-  background-size: 300% 300%;
-  background-attachment: fixed;
+.eyebrow {
+  color: var(--p-blue-700);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
 }
 
-/* ── Nền trung tính ── */
-.dark .bg-white { background-color: #131c2e; }
-.dark .bg-slate-50 { background-color: #162034; }
-.dark .bg-slate-100 { background-color: #1b2740; }
-.dark .bg-slate-200 { background-color: #24324f; }
-
-/* ── Chữ trung tính (đảo chiều thang độ) ──
-   Toàn thang được NÂNG một nấc so với bản trước. Ba bậc dưới cùng (slate-500/400/
-   300) là chỗ đau nhất: chúng dùng cho nhãn trường, chú thích và giá trị "(trống)"
-   — tức phần chữ NHỎ NHẤT và ĐÔNG NHẤT trên màn hình — mà lại là phần tối nhất.
-   Trên nền xanh đen, #96a4bd ở cỡ 12px đọc rất mỏi. */
-.dark .text-slate-900 { color: #ffffff; }
-.dark .text-slate-800 { color: #f1f5f9; }
-.dark .text-slate-700 { color: #e3e9f2; }
-.dark .text-slate-600 { color: #ccd6e5; }
-.dark .text-slate-500 { color: #b8c4d8; }
-.dark .text-slate-400 { color: #a1aec6; }
-.dark .text-slate-300 { color: #8d9bb4; }
-
-/* ── Viền ── */
-.dark .border-slate-100 { border-color: #1f2b44; }
-.dark .border-slate-200 { border-color: #27344f; }
-.dark .border-slate-300 { border-color: #33415e; }
-
-/* ── Nhấn xanh (nút chính, liên kết) ── */
-.dark .text-blue-600 { color: #7dabff; }
-.dark .text-blue-700 { color: #93bbff; }
-.dark .text-blue-800 { color: #a9caff; }
-.dark .bg-blue-50 { background-color: #14243f; }
-.dark .bg-blue-600 { background-color: #2f6fe4; }
-.dark .bg-blue-700 { background-color: #2a63cc; }
-.dark .border-blue-200 { border-color: #27436f; }
-.dark .border-blue-300 { border-color: #2f5187; }
-.dark .border-blue-400 { border-color: #3a63a5; }
-.dark .border-blue-500 { border-color: #3f6dba; }
-.dark .border-blue-600 { border-color: #2f6fe4; }
-.dark .border-blue-700 { border-color: #2a63cc; }
-
-/* ── Trạng thái: hợp lệ / không hợp lệ / cảnh báo ──
-   Các nền này đã được NÂNG SÁNG ~20% so với bản đầu: ở nền tối, nền trạng thái
-   quá trầm thì bảng trích xuất nhìn như một khối xám, không phân biệt được dòng
-   hợp lệ / trống / cảnh báo. Chữ đi kèm cũng sáng lên tương ứng để giữ tương phản. */
-.dark .bg-green-50 { background-color: #143427; }
-.dark .bg-green-100 { background-color: #1c452a; }
-.dark .text-green-700 { color: #86e3ae; }
-.dark .text-green-800 { color: #a2ecc2; }
-.dark .border-green-200 { border-color: #2a6144; }
-
-.dark .bg-red-50 { background-color: #3a1c22; }
-.dark .bg-red-100 { background-color: #4a2229; }
-.dark .text-red-600 { color: #ffa3a3; }
-.dark .text-red-700 { color: #ffb3b3; }
-.dark .text-red-800 { color: #ffc6c6; }
-.dark .border-red-200 { border-color: #6e333b; }
-.dark .border-red-300 { border-color: #883c46; }
-.dark .border-red-400 { border-color: #ab4954; }
-
-.dark .bg-amber-50 { background-color: #3a2d16; }
-.dark .bg-amber-100 { background-color: #49381b; }
-.dark .bg-amber-200 { background-color: #5f4820; }
-.dark .text-amber-600 { color: #f7cd7c; }
-.dark .text-amber-700 { color: #f9d68e; }
-.dark .text-amber-800 { color: #fbdfa4; }
-.dark .text-amber-900 { color: #fde8bd; }
-.dark .border-amber-200 { border-color: #6f5626; }
-.dark .border-amber-300 { border-color: #87682f; }
-
-.dark .bg-orange-50 { background-color: #3c2615; }
-.dark .bg-orange-100 { background-color: #4b301a; }
-.dark .text-orange-800 { color: #ffc79a; }
-.dark .text-orange-900 { color: #ffd7b4; }
-.dark .border-orange-300 { border-color: #8b562c; }
-
-/* THẺ CHI TIẾT ĐỐI CHIẾU — ở chế độ tối, nền hợp lệ/không hợp lệ đủ đậm nên chữ
-   phải là tông SÁNG (đảo ngược so với chế độ sáng) mới tương phản. */
-.dark .bg-red-100 .dark-ink-bad,
-.dark .dark-ink-bad { color: #ffd9d9; }
-.dark .bg-green-100 .dark-ink-good,
-.dark .dark-ink-good { color: #c6f6da; }
-.dark .bg-orange-100 { background-color: #5a3a1e; }
-.dark .border-orange-400 { border-color: #b0713a; }
-.dark .border-red-400 { border-color: #b45560; }
-.dark .border-green-400 { border-color: #3f8a63; }
-
 /* ===========================================================================
-   MÀU DI CHUỘT CHUNG CHO NÚT — MỘT quy tắc, MỘT màu cho cả hai chế độ:
-     nền XANH #2563eb, chữ trắng.
-   Áp cho nút có chữ (`btn-hl`), nút biểu tượng ở header (`icon-hl`) và nút Đăng
-   xuất ở sidebar quản trị (`admin-logout`). Khai ở đây vì màu phụ thuộc `.dark`,
-   không viết được bằng một chuỗi class Tailwind.
+   NÚT — màu di chuột chung, khai theo biến nên đúng ở cả hai chế độ.
    =========================================================================== */
 .btn-hl:hover:not(:disabled),
 .icon-hl:hover,
 .admin-logout:hover {
-  background-color: var(--c-hover-bg);
-  border-color: var(--c-hover-bg);
-  color: var(--c-hover-ink);
+  background-color: var(--p-slate-100);
+  border-color: var(--p-slate-300);
+  color: var(--p-slate-900);
 }
-/* Icon bên trong nút phải đổi màu theo chữ (chúng dùng currentColor). */
-.btn-hl:hover:not(:disabled) svg,
-.icon-hl:hover svg,
-.admin-logout:hover svg { color: #ffffff; }
-
-/* ── NÚT CHÍNH (nền màu nhấn) ──
-   Nền XANH ở CẢ HAI chế độ; di chuột -> bạc #C0C0C0 chữ đen. */
+/* Nút CHÍNH: xanh nhấn, có quầng sáng; di chuột -> sáng lên một nấc và nhích lên 1px. */
+.btn-accent {
+  box-shadow: 0 8px 22px var(--c-primary-glow);
+}
 .btn-accent:hover:not(:disabled) {
-  background-color: var(--c-accent-hover-bg);
-  border-color: var(--c-accent-hover-bg);
-  color: var(--c-accent-hover-ink);
+  background-color: var(--p-blue-500);
+  border-color: var(--p-blue-500);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
 }
-.btn-accent:hover:not(:disabled) svg { color: var(--c-accent-hover-ink); }
+.btn-accent:active:not(:disabled) { transform: none; }
 
-/* Nút chính / mục đang mở ở chế độ TỐI: giữ nguyên XANH của giao diện sáng, chỉ
-   nâng độ sáng một nấc cho đủ tương phản trên nền xanh đen (khai ở khối
-   `.dark .bg-blue-600` phía trên). Không còn ánh xạ sang đỏ. */
+.icon-hl.is-open { border-color: var(--p-blue-500); box-shadow: 0 0 0 3px var(--c-primary-soft); }
 
-/* Ô CHỌN (select): viền theo MÀU NHẤN ở mọi trạng thái — trước đây ở nền tối viền
-   xám lẫn hẳn vào nền, nhìn không ra ô bấm được. */
-.dark select,
-.dark select:hover:not(:disabled),
-.dark select:focus { border-color: var(--c-hover-bg); }
+/* Ô nhập / ô chọn / vùng soạn: nền phụ, viền mảnh, viền + quầng nhấn khi focus. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+select,
+textarea {
+  background-color: var(--p-slate-50);
+  color: var(--p-slate-800);
+  border-color: var(--p-slate-200);
+}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):focus,
 select:focus,
-.dark select:focus { box-shadow: 0 0 0 2px rgb(37 99 235 / 0.3); }
-select:hover:not(:disabled) { border-color: var(--c-hover-bg); }
-
-/* Thanh kéo (DPI): núm + vệt theo màu nhấn XANH của cả hai chế độ (chế độ tối chỉ
-   nâng độ sáng một nấc). Lúc ĐANG KÉO giảm SẮC ĐỘ 20% (--range-drag) làm phản hồi thị giác: hệ số viết một
-   lần, dùng chung cho cả hai chế độ, khỏi phải tính sẵn hai mã màu tối nghĩa. */
-input[type="range"] {
-  --range-h: 221;      /* #2563eb — xanh nhấn của giao diện sáng */
-  --range-s: 83%;
-  --range-l: 53%;
-  --range-drag: 1;     /* 1 = thường · 0.8 = đang kéo */
-  accent-color: hsl(var(--range-h) calc(var(--range-s) * var(--range-drag)) var(--range-l));
+textarea:focus {
+  outline: none;
+  border-color: var(--p-blue-500);
+  box-shadow: 0 0 0 3px var(--c-primary-soft);
 }
-/* Chế độ tối dùng CÙNG màu nhấn, chỉ sáng hơn một nấc để nổi trên nền xanh đen. */
-.dark input[type="range"] { --range-l: 62%; }
-input[type="range"]:active { --range-drag: 0.8; }
+select:hover:not(:disabled) { border-color: var(--p-slate-300); }
+option { background-color: var(--c-surface); color: var(--p-slate-800); }
+::placeholder { color: var(--p-slate-400); opacity: 1; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--p-blue-600); }
 
-/* Thẻ bấm được (2 thẻ ở trang chủ quản trị): di chuột đổi màu viền cho biết bấm được. */
-.card-hl:hover { border-color: var(--c-hover-bg); }
+/* Thanh kéo (DPI): núm + vệt theo màu nhấn; lúc đang kéo nhạt đi một chút. */
+input[type="range"] { accent-color: var(--p-blue-600); background: transparent; }
+input[type="range"]:active { filter: saturate(0.8); }
 
-/* DÒNG BẢNG BẤM ĐƯỢC — một màu di chuột khai theo BIẾN, hợp lệ ở cả hai chế độ.
-   Không dùng `hover:bg-slate-*` của Tailwind cho việc này: biến thể `hover:` sinh ra
-   lớp riêng (`.hover\:bg-slate-50`) mà bộ đảo màu chế độ tối (`.dark .bg-slate-50`)
-   không với tới, nên nền tối bị tô trắng. */
+/* Thẻ bấm được: di chuột đổi viền cho biết bấm được. */
+.card-hl:hover { border-color: var(--p-blue-500); }
+
+/* DÒNG BẢNG BẤM ĐƯỢC. */
 .row-hl:hover { background-color: var(--c-row-hover); }
-/* Vá cùng lỗ hổng đó cho các lớp `hover:` còn lại trong dự án. */
-.dark .hover\:bg-slate-50:hover { background-color: #1b2740; }
-.dark .hover\:bg-slate-100:hover { background-color: #223051; }
 
-/* KHUNG THÔNG BÁO đang mở -> viền theo màu nhấn (một màu cho cả hai chế độ). */
-.icon-hl.is-open { border-color: var(--c-hover-bg); box-shadow: 0 0 0 2px rgb(37 99 235 / 0.25); }
+/* THẺ CHI TIẾT ĐỐI CHIẾU — chữ trên nền hợp lệ/không hợp lệ ở chế độ tối. */
+.dark .dark-ink-bad { color: var(--p-red-900); }
+.dark .dark-ink-good { color: var(--p-green-900); }
 
-/* Tô sáng dòng OCR khớp bằng chứng — nền vàng đủ sáng để thấy rõ vị trí. */
-.dark .bg-yellow-100 { background-color: #423717; }
-.dark .bg-yellow-200 { background-color: #60501a; }
-.dark .text-yellow-800 { color: #f6e195; }
-
-.dark .bg-indigo-100 { background-color: #1d1f42; }
-.dark .text-indigo-700 { color: #a3a9ff; }
-
-/* Ô nhập/chọn: trình duyệt tự vẽ nền trắng cho input/select/textarea. */
-.dark input,
-.dark select,
-.dark textarea,
-.dark option {
-  background-color: #131c2e;
-  color: #e2e8f0;
+/* ===========================================================================
+   CÔNG TẮC (switch) — dùng cho tùy chọn bật/tắt: <label class="switch"><input
+   type="checkbox"><i></i></label>. Ô checkbox thật vẫn nằm đó cho bàn phím + đọc màn hình.
+   =========================================================================== */
+.switch { position: relative; display: inline-flex; flex: none; cursor: pointer; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch i {
+  width: 38px; height: 22px; border-radius: 999px; background: var(--p-slate-300);
+  position: relative; transition: background-color .2s ease;
 }
-.dark ::placeholder { color: #7f8ea9; }
-.dark input[type="range"] { background-color: transparent; }
+.switch i::after {
+  content: ""; position: absolute; left: 3px; top: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: transform .2s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
+}
+.switch input:checked + i { background: var(--p-blue-600); }
+.switch input:checked + i::after { transform: translateX(16px); }
+.switch input:focus-visible + i { outline: 2px solid var(--p-blue-500); outline-offset: 2px; }
+.switch input:disabled + i { opacity: .45; }
+.switch:has(input:disabled) { cursor: not-allowed; }
+
+/* ===========================================================================
+   KHUNG ỨNG DỤNG — sidebar cố định bên trái + thanh trên. Bố cục lấy từ mẫu.
+   =========================================================================== */
+.app-sidebar {
+  position: fixed; inset: 0 auto 0 0; z-index: 30; width: 248px;
+  display: flex; flex-direction: column;
+  background: color-mix(in srgb, var(--c-bg) 82%, var(--c-surface));
+  border-right: 1px solid var(--p-slate-200);
+}
+.app-main { margin-left: 248px; min-width: 0; }
+.app-topbar {
+  position: sticky; top: 0; z-index: 20; height: 64px;
+  display: flex; align-items: center; gap: 16px; padding: 0 28px;
+  background: color-mix(in srgb, var(--c-bg) 88%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--p-slate-200);
+}
+.nav-link {
+  position: relative; display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 10px; text-decoration: none;
+  color: var(--p-slate-500); font-size: 14.5px; font-weight: 600;
+  transition: background-color .15s ease, color .15s ease;
+}
+.nav-link:hover { background: var(--p-slate-50); color: var(--p-slate-800); }
+.nav-link[aria-current="page"] {
+  background: var(--c-primary-soft); color: var(--p-slate-900);
+}
+.nav-link[aria-current="page"] svg { color: var(--p-blue-600); }
+.nav-link[aria-current="page"]::before {
+  content: ""; position: absolute; left: -12px; top: 9px; bottom: 9px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--p-blue-600);
+  box-shadow: 0 0 12px var(--c-primary-glow);
+}
+.nav-group {
+  padding: 18px 12px 6px; color: var(--p-slate-400);
+  font-size: 10.5px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase;
+}
+
+/* Bước của quy trình (thanh trên + cột quy trình): vòng số; bước đang làm có quầng. */
+.step-dot {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 50%;
+  font-size: 12px; font-weight: 800; background: var(--p-slate-100); color: var(--p-slate-500);
+  border: 1px solid var(--p-slate-200);
+}
+.step-dot.is-current {
+  background: var(--p-blue-600); border-color: var(--p-blue-600); color: #fff;
+  box-shadow: 0 0 0 5px var(--c-primary-soft);
+}
+.step-dot.is-done { background: var(--p-green-100); border-color: var(--p-green-300); color: var(--p-green-700); }
+
+/* Thẻ chính + thẻ mục có số bước. */
+.surface-card {
+  background: var(--c-surface); border: 1px solid var(--p-slate-200);
+  border-radius: 16px; box-shadow: var(--c-shadow);
+}
+.drop-zone {
+  border: 1.5px dashed var(--p-slate-300); border-radius: 14px;
+  background: color-mix(in srgb, var(--p-slate-50) 70%, transparent);
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.drop-zone:hover, .drop-zone.is-over { border-color: var(--p-blue-500); background: var(--c-primary-soft); }
+.drop-zone.is-locked { cursor: not-allowed; opacity: .55; }
+.drop-zone.is-locked:hover { border-color: var(--p-slate-300); background: transparent; }
+
+/* Thanh hành động dính đáy trang (Kiểm tra hồ sơ) — nổi trên nội dung, mờ nền phía sau. */
+.action-bar {
+  position: sticky; bottom: 16px; z-index: 10;
+  background: color-mix(in srgb, var(--c-surface) 92%, transparent);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--p-slate-300); border-radius: 14px; box-shadow: var(--c-shadow-lg);
+}
+
+/* Lớp phủ hộp thoại. */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px;
+  background: rgba(3, 8, 16, 0.62); backdrop-filter: blur(3px);
+}
+
+/* THANH BÊN GẬP (nút ☰, hoặc cửa sổ hẹp < 1180px): chỉ còn cột biểu tượng 72px. Rê chuột
+   vào thì thanh NỔI lên đủ rộng (đè lên nội dung, không đẩy bố cục) rồi thu lại khi rời. */
+.app-sidebar { transition: width .18s ease, box-shadow .18s ease; overflow-x: hidden; }
+.app-sidebar :is(.nav-text, .nav-group, .brand-text) { white-space: nowrap; }
+/* Thẻ mẹo không hiện ở dạng nổi — chỉ khi thanh được ghim mở rộng. */
+html[data-sidebar="collapsed"] .app-sidebar .sidebar-card { display: none; }
+html[data-sidebar="collapsed"] .app-sidebar { width: 72px; }
+html[data-sidebar="collapsed"] .app-main { margin-left: 72px; }
+html[data-sidebar="collapsed"] .app-sidebar:not(:hover) :is(.nav-text, .nav-group, .sidebar-card, .brand-text) { display: none; }
+html[data-sidebar="collapsed"] .app-sidebar:not(:hover) .nav-link { justify-content: center; padding: 11px 0; }
+html[data-sidebar="collapsed"] .app-sidebar:not(:hover) .brand-row { justify-content: center; padding-left: 0; padding-right: 0; }
+html[data-sidebar="collapsed"] .app-sidebar:hover { width: 248px; box-shadow: var(--c-shadow-lg); transition-delay: 80ms; }
+@media (max-width: 1179px) {
+  .app-sidebar { width: 72px; }
+  .app-main { margin-left: 72px; }
+  .app-sidebar:not(:hover) :is(.nav-text, .nav-group, .sidebar-card, .brand-text) { display: none; }
+  .app-sidebar:not(:hover) .nav-link { justify-content: center; padding: 11px 0; }
+  .app-sidebar:not(:hover) .brand-row { justify-content: center; padding-left: 0; padding-right: 0; }
+  .app-sidebar:hover { width: 248px; box-shadow: var(--c-shadow-lg); }
+  .app-topbar { padding: 0 18px; }
+}
+
+/* THANH VIỆC NỀN ở đáy — nằm từ mép thanh bên tới mép phải; mở rộng = cao thêm 50%. */
+.app-footer {
+  position: fixed; z-index: 25; right: 0; bottom: 0; left: 248px; height: 44px;
+  display: flex; align-items: center; gap: 12px; padding: 0 10px 0 20px;
+  background: color-mix(in srgb, var(--c-surface) 94%, transparent); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--p-slate-200); transition: height .18s ease, left .18s ease;
+}
+.app-footer.is-expanded { height: 66px; }
+html[data-sidebar="collapsed"] .app-footer { left: 72px; }
+@media (max-width: 1179px) { .app-footer { left: 72px; } }
+html[data-footer="on"] .app-main { padding-bottom: 44px; }
+html[data-footer="expanded"] .app-main { padding-bottom: 66px; }
+.footer-btn {
+  display: grid; place-items: center; flex: none; width: 30px; height: 30px; cursor: pointer;
+  border: 0; border-radius: 8px; background: transparent; color: var(--p-slate-500);
+}
+.footer-btn:hover { background: var(--p-slate-100); color: var(--p-slate-800); }
+.job-pill {
+  position: fixed; z-index: 25; right: 16px; bottom: 16px; display: flex; align-items: center;
+  gap: 2px; padding: 8px 12px; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 800;
+  color: var(--p-slate-700); background: var(--c-surface); border: 1px solid var(--p-slate-300);
+  box-shadow: var(--c-shadow-lg);
+}
+@media (max-width: 720px) {
+  .app-topbar .topbar-steps { display: none; }
+}
+
+/* Ô logo: gradient xanh + quầng sáng (lấy từ mẫu). */
+.brand-mark {
+  background: linear-gradient(145deg, #4f8cff, #315fbd);
+  box-shadow: 0 8px 20px rgba(79, 140, 255, 0.24);
+}
+.brand-mark .text-blue-600 { color: #c3d8ff; }
+
+/* Ô nhập có gợi ý (datalist): mũi tên của Chromium quá đậm trên nền tối -> làm nhạt. */
+input[list]::-webkit-calendar-picker-indicator { opacity: 0.4; cursor: pointer; }
+
+/* THANH TIẾN ĐỘ — đã biết phần trăm thì tô đặc; chưa biết thì một vệt chạy qua lại. */
+.progress-track { position: relative; height: 6px; overflow: hidden; border-radius: 999px; background: var(--p-slate-200); }
+.progress-fill { height: 100%; border-radius: inherit; background: var(--p-blue-600); transition: width 400ms ease; }
+.progress-fill.is-indeterminate { position: absolute; width: 35%; animation: progress-slide 1.3s ease-in-out infinite; }
+@keyframes progress-slide {
+  from { left: -35%; }
+  to   { left: 100%; }
+}
+
+/* HƯỚNG DẪN SỬ DỤNG — lớp phủ tối, khoét sáng đúng vùng đang giới thiệu. */
+.tour-hole {
+  position: fixed; z-index: 90; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 4px var(--p-blue-500), 0 0 0 9999px rgba(15, 23, 42, 0.62);
+  transition: top 220ms ease, left 220ms ease, width 220ms ease, height 220ms ease;
+}
+.tour-card { position: fixed; z-index: 91; width: min(360px, calc(100vw - 32px)); }

@@ -6,15 +6,15 @@ nào có tác dụng, và tệ hơn là không biết một thay đổi đã là
 
 ĐỌC ĐÚNG TỪNG SỐ — đây là phần dễ bị hiểu sai nhất:
 
-  · `retrieval_coverage_at_k` KHÔNG PHẢI recall@k. Recall@k thật cần nhãn "đoạn luật
+  · `retrieval_coverage_at_k` KHÔNG PHẢI recall@k. Recall@k thật cần nhãn "đoạn quy định
     đúng cho trường này" (golden corpus) mà dự án chưa có. Coverage chỉ trả lời "mỗi
-    trường có kéo về được đoạn luật nào không", tức là bắt được ca RAG trả rỗng, chứ
+    trường có kéo về được đoạn quy định nào không", tức là bắt được ca RAG trả rỗng, chứ
     KHÔNG nói đoạn kéo về có đúng hay không. Khi có golden corpus thì
     `retrieval_detail` bên dưới đã lưu sẵn chunk_id theo từng trường để tính recall
     thật mà không phải chạy lại hồ sơ.
 
   · `citation_precision` là số ĐO ĐƯỢC NGAY, không cần nhãn: tỉ lệ trích dẫn trong
-    kết luận trỏ tới đoạn luật THỰC SỰ nằm trong tập đã gửi cho LLM. Nó bắt đúng lỗi
+    kết luận trỏ tới đoạn quy định THỰC SỰ nằm trong tập đã gửi cho LLM. Nó bắt đúng lỗi
     nguy hiểm nhất của RAG — model bịa số hiệu văn bản. Dưới 1.0 là phải xem lại
     ngay, vì người duyệt tin vào phần căn cứ pháp lý.
 
@@ -183,7 +183,7 @@ def retrieval_quality(
 def citation_quality(
     checks: list[dict[str, Any]], rag_chunks: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Trích dẫn có trỏ đúng đoạn luật đã gửi không, và bao nhiêu kết luận có căn cứ.
+    """Trích dẫn có trỏ đúng đoạn quy định đã gửi không, và bao nhiêu kết luận có căn cứ.
 
     `grounded` tính trên các kết luận PASS/FAIL — NEEDS_SUPPLEMENT nghĩa là thiếu dữ
     liệu để đối chiếu nên không có căn cứ là đúng, gộp vào sẽ làm số bị pha loãng."""

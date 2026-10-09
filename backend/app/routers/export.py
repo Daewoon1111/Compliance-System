@@ -19,8 +19,7 @@ router = APIRouter(prefix="/api/v1", tags=["export"])
 
 _VERDICT_VI = {
     "PASS": "Hợp lệ", "FAIL": "Không hợp lệ", "NEEDS_SUPPLEMENT": "Cần bổ sung",
-    "NOT_APPLICABLE": "Không áp dụng", "DECLARATION": "Đã khai báo",
-    "DEFERRED_FOREIGN": "Theo luật nước tiếp nhận", "N/A": "Không có",
+    "DECLARATION": "Đã khai báo", "N/A": "Không có",
 }
 
 
@@ -80,26 +79,21 @@ def export_pdf(session_id: str):
     pdf.add_font("VN", "B", fonts[1])
     pdf.add_page()
     pdf.set_font("VN", "B", 15)
-    pdf.cell(0, 10, "BÁO CÁO KIỂM TRA BỘ HỒ SƠ", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, "BÁO CÁO KIỂM TRA HỒ SƠ", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
 
     pdf.set_font("VN", "", 11)
+    files = ", ".join(report.get("source_files")
+                      or [str(d.get("source_file") or "") for d in report.get("documents", [])])
     for k, v in (
-        ("Thị trường", report.get("market_name", "")),
-        ("Quốc gia/Vùng lãnh thổ", report.get("country_name", "")),
-        ("Loại hình lao động", report.get("job_type_name", "")),
-        ("Thời hạn hợp đồng", report.get("contract_duration", "")),
+        ("Loại hồ sơ (bộ trường)", report.get("field_set_name", "")),
+        ("Tài liệu", files),
+        ("Ngày ký", report.get("signed_date", "")),
         ("Kết luận chung", _VERDICT_VI.get(report.get("overall_verdict", ""),
                                            report.get("overall_verdict", ""))),
         ("Thời gian kiểm tra", report.get("checked_at", "")),
     ):
         pdf.multi_cell(0, 7, f"{k}: {v or '—'}", new_x="LMARGIN", new_y="NEXT")
-
-    # KHOẢN THU / CHI PHÍ LẠ — gạch đầu dòng ngay dưới kết luận chung, giống trang kết quả.
-    if anomalies := report.get("fee_anomalies") or []:
-        pdf.multi_cell(0, 7, "Khoản thu / chi phí lạ:", new_x="LMARGIN", new_y="NEXT")
-        for a in anomalies:
-            pdf.multi_cell(0, 6, f"  - {a}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(3)
 
     pdf.set_font("VN", "B", 12)

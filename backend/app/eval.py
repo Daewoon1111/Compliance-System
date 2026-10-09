@@ -1,7 +1,7 @@
 """ĐO THẬT (eval) — GOLDEN CORPUS: recall@k và độ chính xác trích xuất trên bộ hồ sơ có NHÃN.
 
 Vì sao module này tồn tại: `metrics.retrieval_quality` chỉ đo được PHỦ truy hồi — mỗi
-trường có kéo về đoạn luật nào không. Nó bắt được ca RAG trả rỗng nhưng KHÔNG nói đoạn
+trường có kéo về đoạn quy định nào không. Nó bắt được ca RAG trả rỗng nhưng KHÔNG nói đoạn
 kéo về có đúng hay không. Hai số duy nhất trả lời được câu hỏi đó là recall@k và độ
 chính xác trích xuất, và cả hai đều cần NHÃN do người có chuyên môn xác nhận.
 
@@ -17,15 +17,15 @@ Bố cục một hồ sơ có nhãn (`data/golden/<case_id>.json`):
       "session_id": "4166660c-...",        // phiên đã chạy, dùng làm nguồn artefact
       "note": "đã ẩn danh",
       "fields": {                          // GIÁ TRỊ ĐÚNG do người kiểm tra xác nhận
-        "tien_luong": "184461 JPY/thang",
-        "thoi_han_hop_dong": "1 nam",
-        "so_cong_van": null                // null = trường này ĐÚNG LÀ không có
+        "gia_tri_hop_dong": "120000000 VND",
+        "thoi_han": "6 thang",
+        "so_hop_dong": null                // null = trường này ĐÚNG LÀ không có
       },
-      "relevant_chunks": {                 // đoạn luật ĐÚNG cho từng trường (recall@k)
-        "cac_che_do_bao_hiem": ["Luật số 69/2020/QH14::12::abc123"]
+      "relevant_chunks": {                 // đoạn quy định ĐÚNG cho từng trường (recall@k)
+        "giai_quyet_tranh_chap": ["Bộ luật Dân sự::12::abc123"]
       },
       "citations": {                       // văn bản nguồn ĐÚNG cho kết luận từng trường
-        "ky_quy_vnd": ["Thông tư số 02/2024/TT-BLĐTBXH"]
+        "gia_tri_hop_dong": ["Bộ luật Dân sự"]
       }
     }
 
@@ -195,7 +195,7 @@ def extraction_accuracy(case: dict[str, Any], fields: dict[str, Any]) -> dict[st
 
 
 def recall_at_k(case: dict[str, Any], report: dict[str, Any]) -> dict[str, Any]:
-    """recall@k THẬT: trong các đoạn luật ĐÚNG của một trường, bao nhiêu phần được kéo về.
+    """recall@k THẬT: trong các đoạn quy định ĐÚNG của một trường, bao nhiêu phần được kéo về.
 
     Đây là số mà `coverage_at_k` không thay thế được: phủ truy hồi chỉ nói 'có kéo về
     đoạn nào đó', recall nói 'có kéo về ĐÚNG đoạn cần'."""
@@ -335,7 +335,7 @@ def print_report(res: dict[str, Any]) -> None:
         return
     chua = "  (CHƯA XÁC NHẬN)" if s.get("cases_unverified") else ""
     print(f"[eval] Độ chính xác trích xuất : {s['extraction_accuracy']} trên {s['extraction_fields']} trường{chua}")
-    print(f"[eval] recall@k               : {s['recall_at_k']} trên {s['relevant_chunks']} đoạn luật đúng")
+    print(f"[eval] recall@k               : {s['recall_at_k']} trên {s['relevant_chunks']} đoạn quy định đúng")
     print(f"[eval] Độ chính xác trích dẫn : {s['citation_accuracy']} trên {s['citation_checks']} kết luận")
     for r in res["cases"]:
         if not r.get("ok"):

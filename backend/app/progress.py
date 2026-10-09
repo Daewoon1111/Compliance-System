@@ -42,6 +42,17 @@ def progress_update(pid: str, stage: str, **info: Any) -> None:
     _PROGRESS[pid] = {"stage": stage, "ts": time.time(), **info}
 
 
+def active_jobs(max_age: float = 1800) -> int:
+    """Số việc ĐANG CHẠY (mốc gần nhất chưa phải done/error, cập nhật trong `max_age` giây).
+
+    Launcher của bản ứng dụng hỏi hàm này trước khi tự tắt vì mất nhịp sống: cửa sổ thu
+    nhỏ lâu thì trình duyệt giãn hẹn giờ của trang, nhưng một lượt OCR đang chạy dở thì
+    không được giết."""
+    now = time.time()
+    return sum(1 for v in list(_PROGRESS.values())
+               if v.get("stage") not in ("done", "error") and now - v.get("ts", 0) <= max_age)
+
+
 async def _sse_stream(pid: str) -> AsyncIterator[str]:
     last: dict[str, Any] | None = None
     waited = 0.0

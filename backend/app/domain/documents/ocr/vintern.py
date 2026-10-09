@@ -91,10 +91,12 @@ def _load_model():
             raise
         except Exception as exc:  # noqa: BLE001 — gói thiếu / tải model hỏng / hết RAM
             _LOAD_ERROR = repr(exc)
+            # Chi tiết kỹ thuật -> log; người dùng nhận câu biết phải làm gì.
+            print(f"[ocr] Không nạp được {settings.vintern_model}: {exc!r} — kiểm tra "
+                  "pip install -r requirements.txt, mạng ở lần chạy đầu (~1 GB), RAM trống.")
             raise OcrUnavailableError(
-                f"Không nạp được mô hình OCR {settings.vintern_model}: {exc!r}. "
-                "Kiểm tra: pip install -r requirements.txt; lần chạy đầu cần mạng để tải "
-                "model (~1 GB); máy CPU cần khoảng 4 GB RAM trống."
+                "Chưa mở được bộ đọc tài liệu. Hãy đóng rồi mở lại phần mềm; máy cần còn "
+                "khoảng 4 GB bộ nhớ trống (lần dùng đầu tiên cần có mạng để tải dữ liệu ~1 GB)."
             ) from exc
         _LOAD_ERROR = None
         _STATE.update(model=model, tokenizer=tokenizer, device=device, dtype=dtype)
@@ -311,6 +313,20 @@ def quick_confidence(image) -> float:
 # ---------------------------------------------------------------------------
 # Chẩn đoán (npm run check) + nạp sẵn lúc khởi động
 # ---------------------------------------------------------------------------
+# Gói mà MÃ MÔ HÌNH Vintern (InternVL, trust_remote_code) đòi lúc nạp. `import torch` +
+# `import transformers` chạy được KHÔNG có nghĩa là nạp được Vintern: transformers chỉ
+# kiểm tra các gói này khi mở tệp mô hình, tức là ở lượt tải hồ sơ đầu tiên — người
+# dùng thấy lỗi 503 thay vì một dòng cảnh báo lúc khởi động.
+_VINTERN_PACKAGES = ("timm", "einops", "accelerate")
+
+
+def missing_vintern_packages() -> list[str]:
+    """Các gói Vintern cần mà môi trường Python hiện tại chưa có."""
+    import importlib.util  # noqa: PLC0415
+
+    return [m for m in _VINTERN_PACKAGES if importlib.util.find_spec(m) is None]
+
+
 def describe_device(probe: bool = True) -> dict[str, Any]:
     """Môi trường OCR: bản torch/transformers, CUDA, model + revision; `probe` đọc thử ảnh."""
     info: dict[str, Any] = {
@@ -332,6 +348,11 @@ def describe_device(probe: bool = True) -> dict[str, Any]:
         print("[ocr] CẢNH BÁO: thiếu torch/transformers -> OCR không chạy. "
               "Cài lại: pip install -r requirements.txt")
         return info
+    if missing := missing_vintern_packages():
+        info["missing"] = missing
+        print(f"[ocr] CẢNH BÁO: thiếu gói {', '.join(missing)} -> Vintern KHÔNG nạp được, "
+              "mọi lượt tải hồ sơ sẽ lỗi 503. Cài (trong thư mục backend): "
+              "python -m pip install -r requirements.txt")
     if probe:
         info["ocr_probe"] = probe_ocr()
         print("[ocr] THỬ ĐỌC ẢNH: OK" if info["ocr_probe"] == "ok"
@@ -362,6 +383,7 @@ def warmup_ocr() -> None:
 
 __all__ = [
     "OCR_PROMPT", "OcrUnavailableError", "describe_device", "get_ocr", "join_halves",
+    "missing_vintern_packages",
     "line_confidences", "probe_ocr", "quick_confidence", "reset_ocr", "tile_image",
     "to_lines", "transcribe", "warmup_ocr",
 ]

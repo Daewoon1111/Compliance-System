@@ -48,7 +48,7 @@ def _report_state() -> None:
     gọi mô hình, không OCR lại) nên gắn vào `--check` không làm lệnh này chậm đi đáng
     kể, và mỗi lần kiểm tra môi trường là một lần nhìn thấy hệ đang ở đâu.
 
-    Hỏng ở đây KHÔNG được làm hỏng lệnh kiểm tra: nhật ký rỗng, kho luật chưa nạp hay
+    Hỏng ở đây KHÔNG được làm hỏng lệnh kiểm tra: nhật ký rỗng, kho quy định chưa nạp hay
     thư mục nhãn chưa có đều là trạng thái hợp lệ của một máy vừa cài."""
     try:
         from app.store import technical_metrics  # noqa: PLC0415
@@ -75,7 +75,7 @@ def run_checks(state: bool = False) -> int:
 
     Các lệnh import nằm TRONG hàm: lệnh `--stop` không phải trả giá nạp torch/transformers."""
     setup_runtime()
-    from app.core import production_config_problems  # noqa: PLC0415
+    from app.core import ensure_admin_token, production_config_problems  # noqa: PLC0415
     from app.domain.documents.ocr import describe_device  # noqa: PLC0415
     from app.llm import preflight  # noqa: PLC0415
 
@@ -85,6 +85,10 @@ def run_checks(state: bool = False) -> int:
     describe_device(probe=state)
     # LIỆT KÊ chứ không chặn: ở máy cá nhân (`app_env=local`) cấu hình mở là ĐÚNG.
     # Chặn khởi động chỉ xảy ra khi `app_env=production` — xem `check_production_config`.
+    # Sinh/nạp mã quản trị TRƯỚC khi liệt kê: `app.main` chỉ gọi `ensure_admin_token` lúc
+    # import, tức là SAU dòng này — không có bước này thì mỗi lần `npm run dev` đều in
+    # cảnh báo "admin_token đang RỖNG" dù mã đã có trong `.admin_token`.
+    ensure_admin_token()
     for p in production_config_problems():
         print(f"[cấu hình] {p}")
     if state:

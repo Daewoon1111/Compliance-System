@@ -45,7 +45,7 @@ def get_collection():
 def reset_collection() -> None:
     """Xóa sạch collection trước khi nạp lại — tránh tích lũy bản sao khi seed nhiều lần.
 
-    Xóa luôn ĐỆM TRUY VẤN của `query`: đệm đó giữ nguyên văn các đoạn luật cũ và
+    Xóa luôn ĐỆM TRUY VẤN của `query`: đệm đó giữ nguyên văn các đoạn quy định cũ và
     `chunk_id` sắp bị xóa, nên nạp lại kho mà để đệm sống là hệ vẫn đối chiếu theo bản
     luật cũ trong suốt phần đời còn lại của tiến trình. Đặt ở ĐÂY chứ không ở `seed()`
     để mọi đường nạp lại — dòng lệnh `npm run seed` lẫn trang Quản trị — đều đi qua."""
@@ -98,7 +98,7 @@ def prune_orphan_rows() -> int:
     Vì sao cần: `delete_collection` của Chroma gỡ collection khỏi bảng `segments`
     nhưng KHÔNG dọn các hàng `embeddings` / `embedding_metadata` thuộc segment đó. Mỗi
     lần `npm run seed` vì thế để lại nguyên một bộ bản sao trong tệp SQLite: đo trên
-    máy thật là 206 đoạn luật đang dùng nhưng 2472 hàng trên 12 segment, tệp 19 MB.
+    máy thật là 206 đoạn quy định đang dùng nhưng 2472 hàng trên 12 segment, tệp 19 MB.
     Không sai kết quả — truy vấn chỉ đọc segment còn sống — nhưng tệp phình mãi và
     mọi phép đếm chạy trực tiếp trên SQLite đều ra con số gấp hơn mười lần sự thật.
 
@@ -143,7 +143,7 @@ def upsert_chunks(
     embeddings: list[list[float]],
     metadatas: list[dict[str, Any]],
 ) -> None:
-    """Ghi/đè các đoạn luật vào collection. `upsert` (không phải `add`): id trùng thì
+    """Ghi/đè các đoạn quy định vào collection. `upsert` (không phải `add`): id trùng thì
     ĐÈ LÊN, nên nạp lại cùng một văn bản không sinh bản sao (xem cách dựng id ở
     `ingest_markdown_text`). Bốn danh sách phải cùng độ dài và cùng thứ tự."""
     get_collection().upsert(

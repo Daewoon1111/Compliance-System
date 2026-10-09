@@ -2,142 +2,104 @@
 
 Ba việc:
 
-  1. `resolve_selection` — phân giải THỊ TRƯỜNG · QUỐC GIA · LOẠI HÌNH LAO ĐỘNG mà
-     người dùng chọn thành bộ trường 3 tầng dùng cho cả lượt.
-  2. `cache_key_of` — khóa cache theo ĐÚNG tập file + lựa chọn (đổi một trong hai là
+  1. `resolve_selection` — phân giải BỘ TRƯỜNG người dùng chọn (loại hồ sơ).
+  2. `cache_key_of` — khóa cache theo ĐÚNG tập file + bộ trường (đổi một trong hai là
      phải đọc lại, không được trả kết quả của lựa chọn cũ).
-  3. `build_documents` — OCR + trích xuất TỪNG file, rồi phân tích cả BỘ hồ sơ.
+  3. `build_documents` — OCR + trích xuất TỪNG file.
 
 Lỗi do người dùng chọn sai ném `SelectionError` (ValueError) — không dùng HTTPException
 ở tầng này để domain còn chạy được ngoài web (CLI, test).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import hashlib
+import json
+from dataclasses import dataclass
 from typing import Any
 
-from app.domain.compliance.dossier import analyze_dossier
-from app.domain.compliance.quality import signed_date_of
 from app.domain.documents.pipeline import process_file
-from app.store import (
-    file_sha256,
-    is_meaningful_text,
-    load_markets,
-    region_of,
-    resolve_country,
-    resolve_job_prompt,
-    resolve_market,
-)
-
-DEFAULT_JOB_ID = "nhat_ban"
-GENERIC_JOB_ID = "dong_nam_a"      # bộ trường chung cho thị trường người dùng tự khai
+from app.store import file_sha256, load_field_set
 
 
 class SelectionError(ValueError):
-    """Lựa chọn thị trường/quốc gia/loại hình không hợp lệ — lỗi của NGƯỜI DÙNG."""
+    """Bộ trường không hợp lệ — lỗi của NGƯỜI DÙNG."""
 
 
 @dataclass
 class Selection:
-    """Một lượt chọn đã phân giải xong: đủ dữ liệu cho cả OCR lẫn ghi nhật ký."""
-    job_id: str
+    """Một lượt chọn đã phân giải xong."""
+    field_set_id: str
+    field_set_name: str
     job_prompt: dict[str, Any]
-    # KHU VỰC là tầng CHA của lựa chọn (Đông Bắc Á, Đông Nam Á…). Giữ lại sau khi dựng
-    # bộ trường để trang 2/3 hiện đúng ở ô "Thị trường": lấy `market_name` thì thị
-    # trường một nước (Nhật Bản) làm ô đó trùng luôn ô Quốc gia.
-    region: str = ""
-    region_name: str = ""
-    market: str = ""
-    market_name: str = ""
-    country: str = ""
-    country_name: str = ""
-    country_keywords: list[str] = field(default_factory=list)
-    job_type: str = ""
-    job_type_name: str = ""
 
 
-def resolve_selection(
-    job_id: str = "", market: str = "", country: str = "",
-    job_type: str = "", market_other: str = "", job_type_other: str = "",
-) -> Selection:
-    """Tương thích ngược: client cũ chỉ truyền `job_id` vẫn chạy như trước; `country`
-    được phép để trống (thị trường không chia quốc gia, vd Biển quốc tế)."""
-    sel = Selection(job_id=job_id, job_prompt={}, market=market, country=country,
-                    job_type=job_type)
-
-    if market == "khac":
-        if not is_meaningful_text(market_other):
-            raise SelectionError("Vui lòng nhập THỊ TRƯỜNG cụ thể.")
-        sel.market_name = market_other.strip()
-        sel.job_id = job_id or GENERIC_JOB_ID
-    elif market:
-        mkt = resolve_market(market)
-        if not mkt:
-            raise SelectionError(f"Thị trường không hợp lệ: {market}")
-        sel.market_name = mkt["name"]
-        sel.job_id = mkt.get("job_id", GENERIC_JOB_ID)
-
-        ctr = resolve_country(mkt, country)
-        if country and not ctr:
-            raise SelectionError(f"Quốc gia không thuộc thị trường đã chọn: {country}")
-        if ctr:
-            sel.country_name = ctr.get("name", "")
-            sel.country_keywords = list(ctr.get("keywords") or [])
-
-        if job_type == "khac":
-            if not is_meaningful_text(job_type_other):
-                raise SelectionError("Vui lòng nhập LOẠI HÌNH LAO ĐỘNG cụ thể.")
-            sel.job_type_name = job_type_other.strip()
-        elif job_type:
-            jt = next((t for t in mkt.get("job_types", []) if t.get("id") == job_type), None)
-            # Mã lạ bị TỪ CHỐI như quốc gia lạ ở trên: trước đây nó lọt qua làm tên hiển
-            # thị và làm mã tầng công việc, tức là chuỗi tùy ý từ form đi vào tên tệp.
-            if jt is None:
-                raise SelectionError(
-                    f"Loại hình lao động không thuộc thị trường đã chọn: {job_type}")
-            sel.job_type_name = jt["name"]
-
-    sel.job_id = sel.job_id or DEFAULT_JOB_ID
-    sel.region, sel.region_name = _region_of(market, country)
-    # BỘ TRƯỜNG dựng theo 3 TẦNG: khu vực -> quốc gia -> loại hình lao động.
-    # "Công việc trên biển" nhờ vậy là một TẦNG CÔNG VIỆC dùng được ở mọi khu vực.
+def resolve_selection(field_set_id: str) -> Selection:
+    if not (field_set_id or "").strip():
+        raise SelectionError("Chưa có bộ kiểm tra — hãy tạo bộ kiểm tra trước.")
     try:
-        sel.job_prompt = resolve_job_prompt(market, country, job_type, sel.job_id)
+        fs = load_field_set(field_set_id.strip())
     except FileNotFoundError as exc:
-        raise SelectionError("Loại công việc không hợp lệ. Vui lòng chọn lại thị "
-                             "trường và loại hình lao động.") from exc
-    return sel
+        raise SelectionError(f"Không có bộ trường '{field_set_id}'. Hãy chọn lại.") from exc
+    if not fs.get("fields_catalog"):
+        raise SelectionError("Bộ trường đã chọn chưa có trường nào.")
+    return Selection(field_set_id=fs["id"], field_set_name=str(fs.get("display_name") or fs["id"]),
+                     job_prompt=fs)
 
 
-def _region_of(market: str, country: str) -> tuple[str, str]:
-    """(mã, tên) KHU VỰC của một lựa chọn. Không tra được -> ('', '')."""
-    rid = region_of(market, country)
-    if not rid:
-        return "", ""
-    name = next((r.get("name", rid) for r in load_markets().get("regions", [])
-                 if r.get("id") == rid), rid)
-    return rid, str(name)
+def parse_regions(raw: str, n_files: int) -> list[dict[str, Any] | None]:
+    """VÙNG CẦN KIỂM TRA gửi kèm lượt tải lên (JSON) -> danh sách theo thứ tự file.
+
+    Dạng vào: `[{"skip": [chỉ số trang], "rects": {"<trang>": [x0, y0, x1, y1]}} | null, ...]`
+    — tọa độ chuẩn hóa 0..1, gốc trên-trái. Vùng được kẹp vào [0, 1] và sắp lại hai góc;
+    vùng quá nhỏ (< 1% mỗi chiều) bị bỏ. Sai dạng -> SelectionError."""
+    if not (raw or "").strip():
+        return [None] * n_files
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise SelectionError("Vùng cần kiểm tra không hợp lệ — hãy chọn vùng lại.") from exc
+    if not isinstance(data, list) or len(data) > n_files:
+        raise SelectionError("Vùng cần kiểm tra không khớp danh sách file.")
+    out: list[dict[str, Any] | None] = []
+    for item in data + [None] * (n_files - len(data)):
+        if not item:
+            out.append(None)
+            continue
+        if not isinstance(item, dict):
+            raise SelectionError("Vùng cần kiểm tra không hợp lệ.")
+        try:
+            skip = sorted({int(i) for i in (item.get("skip") or [])})
+            rects: dict[int, tuple[float, float, float, float]] = {}
+            for k, r in (item.get("rects") or {}).items():
+                x0, y0, x1, y1 = (min(1.0, max(0.0, float(v))) for v in r)
+                x0, x1 = sorted((x0, x1))
+                y0, y1 = sorted((y0, y1))
+                if x1 - x0 >= 0.01 and y1 - y0 >= 0.01:
+                    rects[int(k)] = (round(x0, 4), round(y0, 4), round(x1, 4), round(y1, 4))
+        except (TypeError, ValueError) as exc:
+            raise SelectionError("Vùng cần kiểm tra không hợp lệ.") from exc
+        if any(i < 0 for i in skip) or any(i < 0 for i in rects):
+            raise SelectionError("Số trang trong vùng cần kiểm tra không hợp lệ.")
+        out.append({"skip": skip, "rects": rects} if (skip or rects) else None)
+    return out
 
 
-def cache_key_of(datas: list[bytes], sel: Selection) -> str:
-    """Hash gộp NỘI DUNG mọi file + LỰA CHỌN: đổi file hay đổi lựa chọn đều cho khóa
-    khác, nên không bao giờ trả lại kết quả của một lựa chọn cũ.
+def cache_key_of(datas: list[bytes], sel: Selection,
+                 regions: list[dict[str, Any] | None] | None = None) -> str:
+    """Hash gộp NỘI DUNG mọi file + NỘI DUNG bộ trường.
 
-    Hai điều chỉnh so với bản đầu, cả hai đều để khóa đừng đổi khi KHÔNG có gì thật sự
-    đổi — khóa trượt nghĩa là OCR lại từ đầu và chạy lại LLM cho đúng bộ hồ sơ vừa
-    kiểm xong:
-
-      · Băm TỪNG FILE rồi SẮP XẾP các hàm băm. Bản cũ nối nội dung theo THỨ TỰ TẢI
-        LÊN, nên chọn lại đúng bộ file ấy theo thứ tự khác trong hộp thoại là một bộ
-        hồ sơ mới dưới mắt hệ thống.
-      · KHÔNG đưa `market_name` / `job_type_name` vào khóa. Đó là chuỗi HIỂN THỊ; sửa
-        một nhãn trong `markets.json` (thêm dấu cách, đổi cách gọi) là mọi khóa cũ
-        chết sạch, trong khi `market` và `job_type` id đã mang đủ ngữ nghĩa."""
-    digests = sorted(file_sha256(d) for d in datas)
-    return ":".join([
-        file_sha256("|".join(digests).encode("utf-8")),
-        sel.job_id, sel.market, sel.country, sel.job_type,
-    ])
+    Băm TỪNG FILE rồi SẮP XẾP các hàm băm: chọn lại đúng bộ file theo thứ tự khác vẫn là
+    cùng một bộ hồ sơ. Băm cả nội dung bộ trường (không chỉ mã): sửa nhãn một trường
+    phải làm lượt tải lên sau trích xuất lại, không được trả kết quả dựng trên bản cũ."""
+    # Vùng cần kiểm tra đi CÙNG file của nó (đổi thứ tự file không đổi khóa, đổi vùng thì đổi).
+    regs = regions or [None] * len(datas)
+    digests = sorted(
+        file_sha256(d) + (":" + json.dumps(r, sort_keys=True, default=list) if r else "")
+        for d, r in zip(datas, regs, strict=True))
+    fs_hash = hashlib.sha256(
+        json.dumps(sel.job_prompt, ensure_ascii=False, sort_keys=True).encode("utf-8"),
+    ).hexdigest()[:16]
+    return ":".join([file_sha256("|".join(digests).encode("utf-8")), sel.field_set_id, fs_hash])
 
 
 def summarize(documents: list[dict[str, Any]]) -> dict[str, Any]:
@@ -157,67 +119,24 @@ def summarize(documents: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def first_signed_date(documents: list[dict[str, Any]]) -> str:
-    """NGÀY KÝ sớm nhất dò được (C2 — đối chiếu hiệu lực giấy phép). Ba chỗ có thể
-    chứa ngày ký, lấy chỗ nào có trước; không tài liệu nào có -> chuỗi rỗng."""
-    for d in documents:
-        if signed := signed_date_of(d.get("contract", {}) or {}):
-            return signed
-    return ""
-
-
-def merged_fields(documents: list[dict[str, Any]]) -> dict[str, Any]:
-    """Trường đã trích xuất của CẢ BỘ hồ sơ — tài liệu đầu tiên có giá trị thì thắng.
-
-    Bước phân tích bộ hồ sơ cần vài trường (vd thời hạn hiệu lực giấy phép ở C2) mà
-    tài liệu chứa chúng không cố định là file nào; gộp trước rồi tra một lần thì
-    không phải mỗi lần kiểm lại đi dò lại qua từng tài liệu."""
-    out: dict[str, Any] = {}
-    for d in documents:
-        for k, f in ((d.get("contract") or {}).get("extracted_fields") or {}).items():
-            if k not in out and (f.get("value") if isinstance(f, dict) else f) not in (None, "", [], {}):
-                out[k] = f
-    return out
-
-
 async def build_documents(
     session_id: str,
     files: list[tuple[str, bytes]],
     sel: Selection,
     progress_id: str = "",
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """OCR + trích xuất TỪNG file -> (documents, dossier).
-
-    OCR cả giấy tờ phụ: chúng là nguồn THAM KHẢO để bù trường còn trống ở bước gộp,
-    còn ưu tiên trích xuất vẫn thuộc về hợp đồng cung ứng và văn bản đăng ký.
+    regions: list[dict[str, Any] | None] | None = None,
+) -> list[dict[str, Any]]:
+    """OCR + trích xuất TỪNG file. Thứ tự tải lên là thứ tự ưu tiên khi gộp: tài liệu
+    đầu tiên là tài liệu chính, các tài liệu sau bù trường còn trống.
     Lỗi đọc một file được để nguyên cho nơi gọi quyết định mã HTTP."""
     documents: list[dict[str, Any]] = []
     for i, (filename, data) in enumerate(files):
-        doc = await process_file(
-            session_id, data, filename, sel.job_prompt, sel.job_id,
-            sel.market, sel.market_name, sel.job_type, sel.job_type_name,
-            pid=progress_id, file_no=i + 1, files_total=len(files),
-            country=sel.country, country_name=sel.country_name,
-            country_keywords=sel.country_keywords,
-            region=sel.region, region_name=sel.region_name,
-        )
+        doc = await process_file(session_id, data, filename, sel.job_prompt,
+                                 pid=progress_id, file_no=i + 1, files_total=len(files),
+                                 region=(regions or [None] * len(files))[i])
         doc["contract"].setdefault("contract_meta", {})["session_id"] = session_id
         doc["doc_id"] = f"doc{i + 1}"
-        # DUNG LƯỢNG file gốc — ghi lại NGAY ĐÂY vì đây là chỗ duy nhất còn giữ bytes
-        # thô; sau bước này chỉ còn text OCR. Trang chỉ số kỹ thuật cần con số này để
-        # trả lời "đã kiểm bao nhiêu dữ liệu", và nó cũng là mẫu số hợp lý khi so
-        # giây/trang giữa các đợt cấu hình OCR.
+        # DUNG LƯỢNG file gốc — chỗ duy nhất còn giữ bytes thô; trang chỉ số cần nó.
         doc["size_bytes"] = len(data)
         documents.append(doc)
-
-    # Phân tích BỘ HỒ SƠ (A3 đủ thành phần + C1 loại giấy phép + C2/C3/C4 hiệu lực).
-    dossier = analyze_dossier(
-        [{"source_file": d["source_file"], "ocr_text": (d.get("ocr") or {}).get("full_text", "")}
-         for d in documents],
-        sel.market,
-        signed_date=first_signed_date(documents) or None,
-        job_type_name=sel.job_type_name,
-        job_type_id=sel.job_type,
-        extracted_fields=merged_fields(documents),
-    )
-    return documents, dossier
+    return documents
