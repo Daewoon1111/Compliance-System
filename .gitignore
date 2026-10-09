@@ -34,6 +34,6 @@ backend/app/data/user_config/
 .DS_Store
 .vscode/
 
-backend/app/rules
+backend/app/rules/
 package-lock.json
 package.json
